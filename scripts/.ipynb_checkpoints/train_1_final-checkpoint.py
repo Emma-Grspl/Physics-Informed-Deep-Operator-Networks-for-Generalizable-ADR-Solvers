@@ -31,7 +31,7 @@ CONFIG = {
 }
 
 def run_production():
-    print("DÉMARRAGE TRAINING PRODUCTION (Jean Zay)...")
+    print("🚀 DÉMARRAGE TRAINING PRODUCTION (Jean Zay)...")
 
     # 1. Device (Cuda forcé si dispo, sinon CPU)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -70,7 +70,7 @@ def run_production():
     )
 
     duration = (time.time()-start)/60
-    print(f"Fin entraînement en {duration:.1f} min.")
+    print(f"✅ Fin entraînement en {duration:.1f} min.")
 
     # 4. Visualisation & Sauvegarde
     save_dir = CONFIG["save_dir"]

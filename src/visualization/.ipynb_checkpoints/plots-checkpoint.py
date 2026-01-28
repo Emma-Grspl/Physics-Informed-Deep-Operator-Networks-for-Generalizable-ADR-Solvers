@@ -50,8 +50,8 @@ def compare_model_vs_cn_snapshots(model, x_min, x_max, Tmax, save_dir="results")
         }
     ]
 
-    Nx_ref = 500
-    Nt_ref = 200
+    Nx_ref = 3000
+    Nt_ref = 1000
     x_ref = np.linspace(x_min, x_max, Nx_ref)
 
     fig, axes = plt.subplots(1, 3, figsize=(20, 6), sharey=True)
@@ -349,3 +349,89 @@ def evaluate_global_accuracy(model, n_tests, bounds_phy, x_min, x_max, Tmax, sav
         print(f"Mean error L2: {df['L2_Error'].mean():.2%}")
 
     return df
+
+
+def audit_ic_only(model, n_samples=500, threshold=0.03):
+    """
+    Vérifie UNIQUEMENT la condition initiale (t=0).
+    Teste 100 cas pour : Tanh, Sinus, Gauss.
+    Retourne : (success: bool, max_error: float)
+    """
+    device = next(model.parameters()).device
+    model.eval() # Mode évaluation (pas de gradients)
+    
+    # Les types que tu veux tester spécifiquement
+    # ID des types selon ton générateur : 1=Tanh, 2=Sinus, 3=Gauss
+    target_types = {1: "Tanh", 2: "Sinus", 3: "Gauss"}
+    
+    max_error_global = 0.0
+    all_pass = True
+    
+    print(f"   🕵️‍♀️ Audit IC en cours ({n_samples} cas x 3 types)...")
+    
+    # Grille spatiale fixe pour l'audit (t=0 partout)
+    x = np.linspace(-7, 7, 100)
+    t = np.zeros_like(x) # t=0
+    
+    # Conversion tenseurs fixes
+    X_flat = x[:, None]
+    T_flat = t[:, None]
+    xt_in = np.hstack((X_flat, T_flat))
+    xt_tensor = torch.tensor(xt_in, dtype=torch.float32).to(device)
+
+    # On boucle sur les 3 types
+    for type_id, type_name in target_types.items():
+        type_errors = []
+        
+        for _ in range(n_samples):
+            # 1. Tirage aléatoire des paramètres
+            v = np.random.uniform(0.5, 2.0)
+            D = np.random.uniform(0.01, 0.2)
+            mu = np.random.uniform(0.0, 1.0)
+            
+            # Paramètres spécifiques à la forme
+            A = np.random.uniform(0.8, 1.2)
+            x0 = np.random.uniform(-1, 1)
+            sigma = np.random.uniform(0.4, 0.8)
+            k = np.random.uniform(1.0, 3.0) # pour sinus
+            
+            # 2. Vérité Terrain (Formules mathématiques exactes à t=0)
+            u_true = np.zeros_like(x)
+            
+            if type_id == 1: # Tanh (Choc)
+                # u0(x) = 0.5*(1 - tanh((x-x0)/0.5)) environ, adapte selon ta formule exacte
+                # Je reprends la logique standard d'un choc tanh
+                u_true = 0.5 * (1 - np.tanh((x - x0) / 0.5)) 
+                
+            elif type_id == 2: # Sinus
+                u_true = A * np.sin(k * x + x0)
+                
+            elif type_id == 3: # Gauss
+                u_true = A * np.exp(-((x - x0)**2) / (2 * sigma**2))
+            
+            # 3. Prédiction Modèle
+            # Vecteur paramètres répété pour chaque point x
+            p_vec = np.array([v, D, mu, type_id, A, x0, sigma, k])
+            p_tensor = torch.tensor(p_vec, dtype=torch.float32).unsqueeze(0).repeat(len(x), 1).to(device)
+            
+            with torch.no_grad():
+                u_pred = model(p_tensor, xt_tensor).cpu().numpy().flatten()
+            
+            # 4. Erreur L2 Relative
+            diff_norm = np.linalg.norm(u_true - u_pred)
+            true_norm = np.linalg.norm(u_true)
+            rel_err = diff_norm / (true_norm + 1e-6)
+            type_errors.append(rel_err)
+
+        # Moyenne pour ce type
+        avg_type_error = np.mean(type_errors)
+        if avg_type_error > max_error_global:
+            max_error_global = avg_type_error
+            
+        status = "✅" if avg_type_error < threshold else "❌"
+        print(f"      -> {type_name}: Erreur Moyenne = {avg_type_error:.2%} {status}")
+        
+        if avg_type_error >= threshold:
+            all_pass = False
+
+    return all_pass, max_error_global

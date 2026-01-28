@@ -23,7 +23,7 @@ LOCAL_CONFIG = {
     "x_min": -7.0, "x_max": 7.0, "Tmax": 1.0,
 
     # Réseau "Mini" (64 neurones au lieu de 256)
-    "branch_dim": 8, "trunk_dim": 2, "latent_dim": 256, 
+    "branch_dim": 8, "trunk_dim": 2, "latent_dim": 64, 
     "branch_layers": [64, 64, 64], 
     "trunk_layers": [64, 64, 64],
     "nFourier": 20, "sFourier": [0.0, 1.0], # Moins de Fourier pour aller vite
