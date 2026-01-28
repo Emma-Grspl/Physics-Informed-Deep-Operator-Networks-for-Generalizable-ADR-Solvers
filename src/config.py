@@ -25,7 +25,7 @@ class Config:
         'D': (0.01, 0.2),
         'mu': (0.0, 1.0),
         'A': (0.8, 1.2),
-        'x0': (-1.0, 1.0),
+        'x0': (0.0, 0.0),      # <-- Fixé ici
         'sigma': (0.4, 0.8),
         'k': (1.0, 3.0)
     }
@@ -69,11 +69,11 @@ class Config:
     # -------------------------------------------------------------------------
     # 4. HYPERPARAMÈTRES D'ENTRAÎNEMENT
     # -------------------------------------------------------------------------
-    learning_rate = 1e-3      # LR de base
+    learning_rate = 1e-4      # LR de base
     
     epochs = 10000            # Nombre global d'époques (si utilisé hors smart loop)
-    n_warmup = 10000          # Itérations pour figer t=0
-    n_iters_per_step = 20000  # Itérations par palier de temps
+    n_warmup = 15000          # Itérations pour figer t=0
+    n_iters_per_step = 30000  # Itérations par palier de temps
     
     n_sample = 2000           # Points de collocation
     batch_size = 4096         # Taille de lot (V100 friendly)
@@ -85,7 +85,7 @@ class Config:
     # 5. FONCTION DE COÛT (Loss Weights)
     # -------------------------------------------------------------------------
     weight_res = 100.0   # Résidu EDP
-    weight_ic = 150.0    # Condition Initiale
+    weight_ic = 500.0    # Condition Initiale
     weight_bc = 20.0     # Conditions aux limites
 
     # -------------------------------------------------------------------------
