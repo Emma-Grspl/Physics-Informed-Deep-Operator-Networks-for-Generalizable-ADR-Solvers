@@ -4,13 +4,15 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Ajout du dossier parent au path pour voir les modules 'src'
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# --- 1. CONFIGURATION DU CHEMIN ---
+# Ajout du dossier courant au path pour trouver les modules
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-# Imports de tes modules
-from src.config import CONFIG
-from src.models.adr import PI_DeepONet_ADR
-from src.training.smart_trainer import train_smart_adptive
+# --- 2. IMPORTS MIS À JOUR ---
+from config import Config  # Nouvelle source de vérité
+
+from src.models.models import PI_DeepONet_ADR
+from src.train.smart_trainer import train_smart_time_marching
 from src.visualization.plots import (
     compare_model_vs_cn_snapshots, 
     animate_model_vs_cn, 
@@ -19,68 +21,84 @@ from src.visualization.plots import (
 )
 
 def run_smoke_test():
-    print("🚀 DÉMARRAGE DU CRASH TEST (Mode Rapide)...")
+    print("🚀 DÉMARRAGE DU SMOKE TEST (Validation Rapide)...")
 
-    # 1. SETUP DEVICE
+    # --- 3. OVERRIDE CONFIG (POUR LE TEST SEULEMENT) ---
+    # On force des valeurs minuscules pour vérifier que ça ne plante pas
+    print("   🔧 Modification temporaire de la Config pour le test...")
+    Config.n_warmup = 10           # 10 itérations au lieu de 10000
+    Config.n_iters_per_step = 10   # 10 itérations par palier
+    Config.T_max = 0.2             # Juste 2 pas de temps (0.1 et 0.2)
+    Config.n_sample = 50           # Petits samples pour l'audit
+    Config.batch_size = 16         # Petit batch
+    Config.max_retry = 1           # Pas d'acharnement si ça rate
+    Config.save_dir = "./test_results_local"
+    
+    # SETUP DEVICE
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if torch.backends.mps.is_available(): device = torch.device("mps")
-    print(f"   Device: {device}")
+    print(f"   📱 Device utilisé : {device}")
 
-    # 2. INIT MODEL
-    print("   Initialisation du modèle...")
-    # On prépare les bornes géométriques
-    lb_geom = np.array([CONFIG["x_min"], 0.0])
-    ub_geom = np.array([CONFIG["x_max"], CONFIG["Tmax"]])
+    # --- 4. INIT MODEL ---
+    print("   🏗️ Initialisation du modèle...")
+    # Plus besoin de passer d'arguments, tout est lu dans Config !
+    model = PI_DeepONet_ADR().to(device)
 
-    model = PI_DeepONet_ADR(
-        branch_dim=CONFIG["network"]["branch_dim"],
-        trunk_dim=CONFIG["network"]["trunk_dim"],
-        latent_dim=CONFIG["network"]["latent_dim"],
-        branch_layers=CONFIG["network"]["branch_layers"],
-        trunk_layers=CONFIG["network"]["trunk_layers"],
-        num_fourier_features=CONFIG["network"]["nFourier"],
-        fourier_scales=CONFIG["network"]["sFourier"],
-        lb_geom=lb_geom,
-        ub_geom=ub_geom,
-        phy_bounds=CONFIG["bounds_phy"]
-    ).to(device)
+    # --- 5. TRAIN LOOP ---
+    print("   🏋️ Test de la boucle d'entraînement (Smart Time Marching)...")
+    try:
+        model = train_smart_time_marching(
+            model, 
+            bounds=Config.ranges, 
+            n_warmup=Config.n_warmup, 
+            n_iters_per_step=Config.n_iters_per_step
+        )
+        print("   ✅ Entraînement terminé sans erreur.")
+    except Exception as e:
+        print(f"   ❌ CRASH PENDANT L'ENTRAÎNEMENT : {e}")
+        import traceback
+        traceback.print_exc()
+        return
 
-    # 3. TRAIN (VERSION MINIATURE)
-    print("   Test de la boucle d'entraînement (Smart Trainer)...")
-    # On force des valeurs très petites pour tester vite
-    model = train_smart_adptive(
-        model, 
-        bounds=CONFIG["bounds_phy"], 
-        n_warmup=10,    # Seulement 10 itérations !
-        n_physics=10    # Seulement 10 itérations !
-    )
-    print("   ✅ Entraînement terminé sans crash.")
-
-    # 4. VISUALIZATION
-    save_dir = "test_results_local"
+    # --- 6. VISUALIZATION ---
+    save_dir = Config.save_dir
     os.makedirs(save_dir, exist_ok=True)
 
-    print("   Test des Plots...")
+    print("\n   🎨 Test des Plots & Audits...")
+    
+    # Test Snapshots
     try:
-        compare_model_vs_cn_snapshots(model, CONFIG["x_min"], CONFIG["x_max"], CONFIG["Tmax"], save_dir)
-        print("     - Snapshots: OK")
+        print("     - Génération Snapshots...", end="")
+        compare_model_vs_cn_snapshots(model, save_dir=save_dir)
+        print(" OK")
     except Exception as e:
-        print(f"     - Snapshots: ÉCHEC ({e})")
+        print(f" ÉCHEC ({e})")
 
+    # Test Animation
     try:
-        plot_error_heatmaps(model, CONFIG["x_min"], CONFIG["x_max"], CONFIG["Tmax"], save_dir)
-        print("     - Heatmaps: OK")
+        print("     - Génération Animation...", end="")
+        animate_model_vs_cn(model, save_dir=save_dir)
+        print(" OK")
     except Exception as e:
-        print(f"     - Heatmaps: ÉCHEC ({e})")
+        print(f" ÉCHEC ({e})")
 
+    # Test Heatmaps
     try:
-        # On teste l'audit global sur seulement 2 cas
-        evaluate_global_accuracy(model, 2, CONFIG["bounds_phy"], CONFIG["x_min"], CONFIG["x_max"], CONFIG["Tmax"], save_dir)
-        print("     - Audit CSV: OK")
+        print("     - Génération Heatmaps...", end="")
+        plot_error_heatmaps(model, Config.x_min, Config.x_max, Config.T_max, save_dir=save_dir)
+        print(" OK")
     except Exception as e:
-        print(f"     - Audit CSV: ÉCHEC ({e})")
+        print(f" ÉCHEC ({e})")
 
-    print(f"\n🎉 TEST COMPLET TERMINÉ. Vérifie le dossier '{save_dir}' pour les images.")
+    # Test Audit CSV
+    try:
+        print("     - Audit Statistique (sur 5 cas)...", end="")
+        evaluate_global_accuracy(model, 5, Config.ranges, Config.x_min, Config.x_max, Config.T_max, save_dir)
+        print(" OK")
+    except Exception as e:
+        print(f" ÉCHEC ({e})")
+
+    print(f"\n🎉 TEST TERMINÉ. Vérifiez le dossier '{save_dir}'.")
 
 if __name__ == "__main__":
     run_smoke_test()

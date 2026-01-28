@@ -1,45 +1,99 @@
 import numpy as np
 
-# Global config
-CONFIG = {
-    # geometrical bounds
-    "x_min": -7.0, "x_max": 7.0, "Tmax": 1.0,
+class Config:
+    # -------------------------------------------------------------------------
+    # 1. GÉOMÉTRIE & TEMPS
+    # -------------------------------------------------------------------------
+    x_min = -7.0
+    x_max = 7.0
+    
+    # T_max définit la borne supérieure maximale de la simulation.
+    # (Mis à 2.0 pour permettre l'évolution, car 0 bloquerait le solveur)
+    T_max = 2.0  
+    
+    dt = 0.1
+    
+    # Nombre de pas de temps total (calculé automatiquement)
+    Nt = int(np.ceil(T_max / dt))
 
-    # physical bounds
-    # D descend à 0.01 => Chocs forts => Besoin de sFourier élevé (50.0 est parfait)
-    "bounds_phy": {'v': (0.5, 2.0), 'D': (0.01, 0.5), 'mu': (0.5, 2.0)},
-
-    # neural architecture
-    "network": {
-        "branch_dim": 8,            # [v, D, mu, type, A, x0, sigma, k]
-        "trunk_dim": 2,             # [x, t]
-        "latent_dim": 256,          # Alignement parfait avec les layers
-        "branch_layers": [256, 256, 256, 256],
-        "trunk_layers": [256, 256, 256],
-        "nFourier": 126,            
-        "sFourier": [0.0, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0] # 50.0 aide pour les chocs
-    },
-
-    # training
-    "training": {
-        "batch_size": 4096,       # AUGMENTÉ : Optimisé pour V100 (plus stable/rapide)
-        
-        # WARMUP (t=0)
-        # C'est un "Max". Comme le code s'arrête dès que l'erreur < 3%, 
-        # on peut mettre une valeur haute par sécurité.
-        "n_warmup": 50000,        
-        
-        # PHYSICS (Time Marching)
-        # ATTENTION : C'est le nombre d'itérations PAR PALIER (il y a 10 paliers).
-        # 20 000 * 10 = 200 000 itérations totales (C'est le bon chiffre).
-        "n_physics": 20000,       
-        
-        "learning_rate": 5e-4,
-        "loss_weights": {"pde": 100.0, "ic": 150.0, "bc": 20.0}
-    },
-
-    # files
-    "dirs": {
-        "results": "results_train_2_final" # Nom explicite pour la V2
+    # -------------------------------------------------------------------------
+    # 2. PHYSIQUE (Intervalles & Génération)
+    # -------------------------------------------------------------------------
+    # Intervalles de variation pour la génération aléatoire
+    ranges = {
+        'v': (0.5, 2.0),
+        'D': (0.01, 0.2),
+        'mu': (0.0, 1.0),
+        'A': (0.8, 1.2),
+        'x0': (-1.0, 1.0),
+        'sigma': (0.4, 0.8),
+        'k': (1.0, 3.0)
     }
-}
+
+    @staticmethod
+    def get_p_dict():
+        """
+        Retourne un dictionnaire de paramètres physiques aléatoires
+        basé sur les intervalles définis ci-dessus.
+        """
+        r = Config.ranges
+        type_id = np.random.randint(0, 5) # 5 types d'équations (0 à 4)
+        
+        return {
+            'v': np.random.uniform(*r['v']),
+            'D': np.random.uniform(*r['D']),
+            'mu': np.random.uniform(*r['mu']),
+            'type': type_id,
+            'A': np.random.uniform(*r['A']),
+            'x0': np.random.uniform(*r['x0']),
+            'sigma': np.random.uniform(*r['sigma']),
+            'k': np.random.uniform(*r['k'])
+        }
+
+    # -------------------------------------------------------------------------
+    # 3. ARCHITECTURE DU MODÈLE (DeepONet)
+    # -------------------------------------------------------------------------
+    # Dimensions
+    branch_dim = [256, 256, 256, 256]
+    trunk_dim = [256, 256, 256]
+    latent_dim = 256
+    
+    # Profondeur (Nombre de couches cachées)
+    branch_layers = 8
+    trunk_layers = 2
+    
+    # Encodage de Fourier (Trunk)
+    nFourier = 126
+    sFourier = [0.0, 1.0, 2.0, 10.0, 20.0, 50.0]
+
+    # -------------------------------------------------------------------------
+    # 4. HYPERPARAMÈTRES D'ENTRAÎNEMENT
+    # -------------------------------------------------------------------------
+    learning_rate = 1e-3      # LR de base
+    
+    epochs = 10000            # Nombre global d'époques (si utilisé hors smart loop)
+    n_warmup = 10000          # Itérations pour figer t=0
+    n_iters_per_step = 20000  # Itérations par palier de temps
+    
+    n_sample = 2000           # Points de collocation
+    batch_size = 4096         # Taille de lot (V100 friendly)
+    
+    max_retry = 3             # Nombre d'essais en cas d'échec
+    threshold = 0.03          # Seuil d'erreur relative pour valider un palier
+
+    # -------------------------------------------------------------------------
+    # 5. FONCTION DE COÛT (Loss Weights)
+    # -------------------------------------------------------------------------
+    weight_res = 100.0   # Résidu EDP
+    weight_ic = 150.0    # Condition Initiale
+    weight_bc = 20.0     # Conditions aux limites
+
+    # -------------------------------------------------------------------------
+    # 6. SOLVEUR & AUDIT
+    # -------------------------------------------------------------------------
+    Nx_solver = 100      # Grille spatiale pour la Vérité Terrain (Solveur)
+    
+    Nx_audit = 200       # Résolution spatiale pour l'évaluation/plot
+    Nt_audit = 100       # Résolution temporelle pour l'évaluation/plot
+    
+    save_dir = "./results"

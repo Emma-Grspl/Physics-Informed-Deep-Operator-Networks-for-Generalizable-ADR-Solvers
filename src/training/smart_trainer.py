@@ -3,159 +3,212 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 from tqdm import tqdm
+
+# Import de la configuration centralisée
+from config import Config
+
+# Imports du projet
 from src.physics.adr import pde_residual_adr
 from src.data.generators import generate_mixed_batch
 from src.physics.solver import get_ground_truth_CN
+from src.visualization.plots import evaluate_global_accuracy
 
-def audit_time_window(model, current_t_max, bounds, n_samples=300, threshold=0.03):
-    """ Audit rapide (inchangé) """
+def audit_time_window(model, current_t_max, bounds):
+    """ 
+    Audit rapide utilisant les paramètres de Config.
+    Génère des paramètres physiques aléatoires via Config.get_p_dict(),
+    compare avec le solveur CN et retourne si l'erreur est sous le seuil.
+    """
     device = next(model.parameters()).device
     model.eval()
     
-    Nx_audit = 100
-    Nt_audit = 50 
-    x_min, x_max = -7.0, 7.0
+    # Récupération des paramètres depuis Config
+    Nx = Config.Nx_audit
+    Nt = Config.Nt_audit
+    x_min, x_max = Config.x_min, Config.x_max
+    threshold = Config.threshold
+    # On fait un audit rapide (10% du n_sample habituel) pour ne pas ralentir le train
+    n_samples = max(10, Config.n_sample // 10) 
+    
     errors = []
     
     for _ in range(n_samples):
-        type_id = np.random.randint(0, 5)
-        p_dict = {
-            'v': np.random.uniform(0.5, 2.0),
-            'D': np.random.uniform(0.01, 0.2),
-            'mu': np.random.uniform(0.0, 1.0),
-            'type': type_id,
-            'A': np.random.uniform(0.8, 1.2),
-            'x0': np.random.uniform(-1, 1),
-            'sigma': np.random.uniform(0.4, 0.8),
-            'k': np.random.uniform(1.0, 3.0)
-        }
-        X_grid, T_grid, U_true_np = get_ground_truth_CN(p_dict, x_min, x_max, current_t_max, Nx_audit, Nt_audit)
+        # 1. Génération via la méthode centralisée du Config
+        p_dict = Config.get_p_dict()
 
+        # 2. Appel au solveur (utilise les params générés)
+        # On passe x_min/max explicitement, le reste est géré par p_dict et Config
+        X_grid, T_grid, U_true_np = get_ground_truth_CN(p_dict, x_min, x_max, current_t_max, Nx, Nt)
+
+        # 3. Préparation des tenseurs pour le modèle
         X_flat = X_grid.flatten()
         T_flat = T_grid.flatten()
         xt_in = np.stack([X_flat, T_flat], axis=1)
         xt_tensor = torch.tensor(xt_in, dtype=torch.float32).to(device)
-        p_vec = np.array([p_dict['v'], p_dict['D'], p_dict['mu'], p_dict['type'], 
-                          p_dict['A'], p_dict['x0'], p_dict['sigma'], p_dict['k']])
+        
+        # Construction du vecteur de paramètres pour le réseau
+        # Ordre attendu : [v, D, mu, type, A, x0, sigma, k]
+        p_vec = np.array([
+            p_dict['v'], p_dict['D'], p_dict['mu'], p_dict['type'], 
+            p_dict['A'], p_dict['x0'], p_dict['sigma'], p_dict['k']
+        ])
         p_tensor = torch.tensor(p_vec, dtype=torch.float32).unsqueeze(0).repeat(len(X_flat), 1).to(device)
 
+        # 4. Prédiction
         with torch.no_grad():
             u_pred_flat = model(p_tensor, xt_tensor).cpu().numpy().flatten()
         
-        U_pred_np = u_pred_flat.reshape(Nx_audit, Nt_audit)
+        U_pred_np = u_pred_flat.reshape(Nx, Nt)
+        
+        # 5. Calcul erreur relative
         err_norm = np.linalg.norm(U_true_np - U_pred_np)
         true_norm = np.linalg.norm(U_true_np)
-        errors.append(err_norm / (true_norm + 1e-6))
+        
+        # Sécurité division par zéro
+        if true_norm < 1e-6: true_norm = 1e-6
+        
+        errors.append(err_norm / true_norm)
 
     mean_error = np.mean(errors)
     return mean_error < threshold, mean_error
 
-def train_step_time_window(model, bounds, t_max, n_iters_main, max_retries=3, batch_size=2048, use_lbfgs=True):
-    """ Fonction Ouvrier (inchangée, mais utilise n_iters_main passé en arg) """
-    target_error = 0.03
-    W_IC = 100.0
-    W_PDE = 20.0
-    lr_base = 5e-4
+def train_step_time_window(model, bounds, t_max, n_iters_main, use_lbfgs=True):
+    """ 
+    Fonction Ouvrier : Entraîne le modèle sur la fenêtre [0, t_max].
+    Gère les tentatives (retries) avec décroissance du learning rate.
+    """
+    device = next(model.parameters()).device
     
+    # Récupération hyperparamètres Config
+    target_error = Config.threshold
+    batch_size = Config.batch_size
+    max_retries = Config.max_retry
+    
+    w_res = Config.weight_res
+    w_ic = Config.weight_ic
+    
+    lr_base = Config.learning_rate  # J'utilise 'learning_rate' comme défini dans ton Config
+    
+    # --- 1. MAIN TRY ---
     optimizer = optim.Adam(model.parameters(), lr=lr_base)
     model.train()
     
-    # --- MAIN TRY ---
     pbar = tqdm(range(n_iters_main), desc=f"Train T={t_max:.1f}", leave=False)
     for _ in pbar:
         optimizer.zero_grad()
-        params, xt, xt_ic, u_true_ic = generate_mixed_batch(batch_size, bounds, -7, 7, t_max)
         
+        # Génération du batch (utilise Config par défaut pour les bounds si bounds est Config.ranges)
+        params, xt, xt_ic, u_true_ic = generate_mixed_batch(
+            batch_size, bounds, Config.x_min, Config.x_max, t_max
+        )
+        
+        # Calcul Loss
         loss_pde = torch.mean(pde_residual_adr(model, params, xt)**2)
         loss_ic = torch.mean((model(params, xt_ic) - u_true_ic)**2)
-        loss = (W_PDE * loss_pde) + (W_IC * loss_ic)
+        
+        loss = (w_res * loss_pde) + (w_ic * loss_ic)
         
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
 
-    success, err = audit_time_window(model, t_max, bounds, n_samples=300, threshold=target_error)
-    if success: return True, err
+    # Audit après le main try
+    success, err = audit_time_window(model, t_max, bounds)
+    if success: 
+        return True, err
 
-    # --- RETRIES ---
-    lrs_retry = [1e-4, 5e-5, 1e-5]
+    # --- 2. RETRIES LOOP ---
+    # Si on échoue, on divise le LR par 2 à chaque essai (stratégie "Refinement")
+    # On part du LR de base ou d'un LR spécifique s'il existait (ici on divise le LR de base)
+    base_refine_lr = lr_base / 2.0 
+    
     for attempt in range(max_retries):
-        current_lr = lrs_retry[min(attempt, len(lrs_retry)-1)]
-        print(f"   ⚠️ Retry {attempt+1}/{max_retries} (LR={current_lr:.0e}, Err: {err:.2%})...")
+        # Calcul dynamique du LR : division par 2^attempt
+        current_lr = base_refine_lr / (2 ** attempt)
         
+        print(f"   ⚠️ Retry {attempt+1}/{max_retries} (LR={current_lr:.1e}, Err: {err:.2%})...")
+        
+        # Cas spécial : Dernier essai avec LBFGS si demandé
         if use_lbfgs and attempt == max_retries - 1:
             lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=50, line_search_fn="strong_wolfe")
             def closure():
                 lbfgs.zero_grad()
-                params, xt, xt_ic, u_true_ic = generate_mixed_batch(batch_size, bounds, -7, 7, t_max)
-                loss = W_PDE*torch.mean(pde_residual_adr(model, params, xt)**2) + \
-                       W_IC*torch.mean((model(params, xt_ic) - u_true_ic)**2)
+                params, xt, xt_ic, u_true_ic = generate_mixed_batch(batch_size, bounds, Config.x_min, Config.x_max, t_max)
+                loss = w_res * torch.mean(pde_residual_adr(model, params, xt)**2) + \
+                       w_ic * torch.mean((model(params, xt_ic) - u_true_ic)**2)
                 loss.backward()
                 return loss
             try: lbfgs.step(closure)
             except: pass
+        
         else:
+            # Adam avec le LR réduit
             optimizer_retry = optim.Adam(model.parameters(), lr=current_lr)
-            for _ in tqdm(range(3000), desc=f"Retry #{attempt+1}", leave=False): # Retry plus court
+            # On tente un raffinement plus court (ex: 25% des itérations principales ou fixe 3000)
+            n_retry_iters = 3000 
+            
+            for _ in tqdm(range(n_retry_iters), desc=f"Retry #{attempt+1}", leave=False): 
                 optimizer_retry.zero_grad()
-                params, xt, xt_ic, u_true_ic = generate_mixed_batch(batch_size, bounds, -7, 7, t_max)
-                loss = W_PDE*torch.mean(pde_residual_adr(model, params, xt)**2) + \
-                       W_IC*torch.mean((model(params, xt_ic) - u_true_ic)**2)
+                params, xt, xt_ic, u_true_ic = generate_mixed_batch(batch_size, bounds, Config.x_min, Config.x_max, t_max)
+                loss = w_res * torch.mean(pde_residual_adr(model, params, xt)**2) + \
+                       w_ic * torch.mean((model(params, xt_ic) - u_true_ic)**2)
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer_retry.step()
         
-        success, err = audit_time_window(model, t_max, bounds, n_samples=300, threshold=target_error)
+        # Nouvel audit
+        success, err = audit_time_window(model, t_max, bounds)
         if success: return True, err
 
     return False, err
 
-def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step, save_dir="results"):
+def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step):
     """
-    Args:
-        n_warmup (int): Nombre d'itérations pour fixer t=0 (IC) au début.
-        n_iters_per_step (int): Nombre d'itérations pour chaque palier de temps (0.1, 0.2...)
+    Orchestrateur principal.
     """
-    BATCH_SIZE = 2048
+    save_dir = Config.save_dir
+    batch_size = Config.batch_size
     
-    print(f"⚡ DÉMARRAGE TRAINING (Optuna Ready)")
+    print(f"⚡ DÉMARRAGE TRAINING (Config Driven)")
     print(f"   -> Warmup (t=0): {n_warmup} iters")
-    print(f"   -> Time Marching: {n_iters_per_step} iters/palier")
+    print(f"   -> Time Step: {Config.dt}, Max T: {Config.T_max}")
+    print(f"   -> Batch Size: {batch_size}")
 
     # --- PHASE 0 : WARMUP STRICT (t=0) ---
-    # C'est important pour ta Gaussienne qui s'écrase !
     if n_warmup > 0:
         print("\n🧊 PHASE 0 : Fixation Condition Initiale (t=0)...")
-        optimizer = optim.Adam(model.parameters(), lr=1e-3)
+        optimizer = optim.Adam(model.parameters(), lr=Config.learning_rate)
         model.train()
         for _ in tqdm(range(n_warmup), desc="Warmup IC"):
             optimizer.zero_grad()
-            # On demande t_max = 0.0, donc generate_mixed_batch ne sortira que du t=0 (ou presque)
-            params, xt, xt_ic, u_true_ic = generate_mixed_batch(BATCH_SIZE, bounds, -7, 7, 0.0)
-            
-            # On ne calcule QUE la perte IC ici
+            params, xt, xt_ic, u_true_ic = generate_mixed_batch(
+                batch_size, bounds, Config.x_min, Config.x_max, 0.0
+            )
             u_pred_ic = model(params, xt_ic)
             loss = torch.mean((u_pred_ic - u_true_ic)**2)
-            
             loss.backward()
             optimizer.step()
         print("   ✅ Warmup terminé.")
 
     # --- PHASE 1 : TIME MARCHING ---
-    time_steps = [round(t, 1) for t in np.arange(0.1, 1.1, 0.1)]
+    # Petite sécurité : si T_max est très petit
+    T_end = Config.T_max
+    if T_end < Config.dt: T_end = Config.dt
     
-    for t_max in time_steps:
-        print(f"\n⏳ --- PALIER TEMPOREL : [0, {t_max}] ---")
+    time_steps = [round(t, 2) for t in np.arange(Config.dt, T_end + Config.dt/1000.0, Config.dt)]
+    
+    for t_step in time_steps:
+        print(f"\n⏳ --- PALIER TEMPOREL : [0, {t_step}] ---")
         
-        # Ici on utilise la variable n_iters_per_step qu'Optuna pourra modifier
         success, final_err = train_step_time_window(
-            model, bounds, t_max, 
-            n_iters_main=n_iters_per_step,  # <--- C'est ici que ça se joue
-            max_retries=3, 
-            batch_size=BATCH_SIZE,
+            model, 
+            bounds, 
+            t_max=t_step, 
+            n_iters_main=n_iters_per_step, 
             use_lbfgs=True
         )
         
+        # C'EST ICI QUE L'ERREUR DE SYNTAXE ETAIT POSSIBLEMENT :
         if success:
             print(f"   ✅ PALIER VALIDÉ (Err: {final_err:.2%})")
         else:
@@ -163,8 +216,15 @@ def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step, save_di
 
     print("\n🎉 Entraînement terminé.")
     
-    # Audit Final
-    from src.visualization.plots import evaluate_global_accuracy
-    evaluate_global_accuracy(model, 100, bounds, -7, 7, 1.0, save_dir)
+    # Evaluation finale
+    evaluate_global_accuracy(
+        model, 
+        Config.Nx_audit, 
+        bounds, 
+        Config.x_min, 
+        Config.x_max, 
+        Config.T_max, 
+        save_dir
+    )
     
     return model
