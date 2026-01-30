@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -87,17 +88,18 @@ def train_step_time_window(model, bounds, t_max, n_iters_main, use_lbfgs=True):
     w_res = Config.weight_res
     w_ic = Config.weight_ic
     
-    lr_base = Config.learning_rate  # J'utilise 'learning_rate' comme défini dans ton Config
+    lr_base = Config.learning_rate 
     
     # --- 1. MAIN TRY ---
     optimizer = optim.Adam(model.parameters(), lr=lr_base)
     model.train()
     
+    # --- MODIFICATION ICI : On utilise enumerate pour avoir l'index 'i' ---
     pbar = tqdm(range(n_iters_main), desc=f"Train T={t_max:.1f}", leave=False)
-    for _ in pbar:
+    for i in pbar:
         optimizer.zero_grad()
         
-        # Génération du batch (utilise Config par défaut pour les bounds si bounds est Config.ranges)
+        # Génération du batch
         params, xt, xt_ic, u_true_ic = generate_mixed_batch(
             batch_size, bounds, Config.x_min, Config.x_max, t_max
         )
@@ -112,48 +114,75 @@ def train_step_time_window(model, bounds, t_max, n_iters_main, use_lbfgs=True):
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
 
+        # --- AJOUT : Monitoring ---
+        # 1. Mise à jour de la barre de progression en temps réel
+        pbar.set_postfix({'loss': f"{loss.item():.2e}"})
+        
+        # 2. Print historique toutes les 500 itérations
+        if (i + 1) % 500 == 0:
+            pbar.write(f"    [Main] Iter {i+1}/{n_iters_main} | Loss: {loss.item():.6e} (PDE: {loss_pde.item():.2e}, IC: {loss_ic.item():.2e})")
+
     # Audit après le main try
     success, err = audit_time_window(model, t_max, bounds)
     if success: 
         return True, err
 
     # --- 2. RETRIES LOOP ---
-    # Si on échoue, on divise le LR par 2 à chaque essai (stratégie "Refinement")
-    
     for attempt in range(max_retries):
-        # Calcul dynamique du LR : division par 2^attempt
         current_lr = lr_base / (2 ** attempt)
+        print(f"    ⚠️ Retry {attempt+1}/{max_retries} (LR={current_lr:.1e}, Err: {err:.2%})...")
         
-        print(f"   ⚠️ Retry {attempt+1}/{max_retries} (LR={current_lr:.1e}, Err: {err:.2%})...")
-        
-        # Cas spécial : Dernier essai avec LBFGS si demandé
+        # Cas spécial : LBFGS (Pas de boucle for standard, mais on peut printer dans la closure)
         if use_lbfgs and attempt == max_retries - 1:
             lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=50, line_search_fn="strong_wolfe")
+            
+            # Compteur pour LBFGS (hack pour le print)
+            lbfgs_iter_count = [0] 
+
             def closure():
                 lbfgs.zero_grad()
                 params, xt, xt_ic, u_true_ic = generate_mixed_batch(batch_size, bounds, Config.x_min, Config.x_max, t_max)
-                loss = w_res * torch.mean(pde_residual_adr(model, params, xt)**2) + \
-                       w_ic * torch.mean((model(params, xt_ic) - u_true_ic)**2)
+                
+                loss_pde_val = torch.mean(pde_residual_adr(model, params, xt)**2)
+                loss_ic_val = torch.mean((model(params, xt_ic) - u_true_ic)**2)
+                loss = w_res * loss_pde_val + w_ic * loss_ic_val
                 loss.backward()
+                
+                # Petit print pour LBFGS (souvent peu d'itérations, donc on print toutes les 10)
+                lbfgs_iter_count[0] += 1
+                if lbfgs_iter_count[0] % 10 == 0:
+                     print(f"    [LBFGS] Step {lbfgs_iter_count[0]} | Loss: {loss.item():.6e}")
+                
                 return loss
+            
             try: lbfgs.step(closure)
             except: pass
         
         else:
-            # Adam avec le LR réduit
+            # Adam Retry Loop
             optimizer_retry = optim.Adam(model.parameters(), lr=current_lr)
-            # On tente un raffinement plus court (ex: 25% des itérations principales ou fixe 3000)
             n_retry_iters = n_iters_main + (1000 * attempt) 
             
-            for _ in tqdm(range(n_retry_iters), desc=f"Retry #{attempt+1}", leave=False): 
+            # --- MODIFICATION ICI AUSSI ---
+            pbar_retry = tqdm(range(n_retry_iters), desc=f"Retry #{attempt+1}", leave=False)
+            for i in pbar_retry: 
                 optimizer_retry.zero_grad()
                 params, xt, xt_ic, u_true_ic = generate_mixed_batch(batch_size, bounds, Config.x_min, Config.x_max, t_max)
-                loss = w_res * torch.mean(pde_residual_adr(model, params, xt)**2) + \
-                       w_ic * torch.mean((model(params, xt_ic) - u_true_ic)**2)
+                
+                loss_pde_val = torch.mean(pde_residual_adr(model, params, xt)**2)
+                loss_ic_val = torch.mean((model(params, xt_ic) - u_true_ic)**2)
+                loss = w_res * loss_pde_val + w_ic * loss_ic_val
+                
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer_retry.step()
-        
+                
+                # --- AJOUT : Monitoring Retry ---
+                pbar_retry.set_postfix({'loss': f"{loss.item():.2e}"})
+                
+                if (i + 1) % 500 == 0:
+                    pbar_retry.write(f"    [Retry #{attempt+1}] Iter {i+1} | Loss: {loss.item():.6e}")
+
         # Nouvel audit
         success, err = audit_time_window(model, t_max, bounds)
         if success: return True, err
@@ -166,7 +195,7 @@ def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step):
     """
     save_dir = Config.save_dir
     batch_size = Config.batch_size
-    os.makedirs(save_dir, exist_ok=True) # Sécurité pour le dossier
+    os.makedirs(save_dir, exist_ok=True) 
     
     print(f"⚡ DÉMARRAGE TRAINING (Config Driven)")
     print(f"    -> Warmup (t=0): {n_warmup} iters")
@@ -178,7 +207,10 @@ def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step):
         print("\n🧊 PHASE 0 : Fixation Condition Initiale (t=0)...")
         optimizer = optim.Adam(model.parameters(), lr=Config.learning_rate)
         model.train()
-        for _ in tqdm(range(n_warmup), desc="Warmup IC"):
+        
+        # --- MODIFICATION ICI : Warmup ---
+        pbar_warmup = tqdm(range(n_warmup), desc="Warmup IC")
+        for i in pbar_warmup:
             optimizer.zero_grad()
             params, xt, xt_ic, u_true_ic = generate_mixed_batch(
                 batch_size, bounds, Config.x_min, Config.x_max, 0.0
@@ -187,6 +219,12 @@ def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step):
             loss = torch.mean((u_pred_ic - u_true_ic)**2)
             loss.backward()
             optimizer.step()
+            
+            # --- AJOUT : Monitoring Warmup ---
+            pbar_warmup.set_postfix({'loss_ic': f"{loss.item():.2e}"})
+            
+            if (i + 1) % 500 == 0:
+                 pbar_warmup.write(f"    [Warmup] Iter {i+1}/{n_warmup} | Loss IC: {loss.item():.6e}")
         
         # Sauvegarde post-warmup
         torch.save(model.state_dict(), os.path.join(save_dir, "model_post_warmup.pth"))
