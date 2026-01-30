@@ -119,12 +119,10 @@ def train_step_time_window(model, bounds, t_max, n_iters_main, use_lbfgs=True):
 
     # --- 2. RETRIES LOOP ---
     # Si on échoue, on divise le LR par 2 à chaque essai (stratégie "Refinement")
-    # On part du LR de base ou d'un LR spécifique s'il existait (ici on divise le LR de base)
-    base_refine_lr = lr_base / 2.0 
     
     for attempt in range(max_retries):
         # Calcul dynamique du LR : division par 2^attempt
-        current_lr = base_refine_lr / (2 ** attempt)
+        current_lr = lr_base / (2 ** attempt)
         
         print(f"   ⚠️ Retry {attempt+1}/{max_retries} (LR={current_lr:.1e}, Err: {err:.2%})...")
         
@@ -145,7 +143,7 @@ def train_step_time_window(model, bounds, t_max, n_iters_main, use_lbfgs=True):
             # Adam avec le LR réduit
             optimizer_retry = optim.Adam(model.parameters(), lr=current_lr)
             # On tente un raffinement plus court (ex: 25% des itérations principales ou fixe 3000)
-            n_retry_iters = 3000 
+            n_retry_iters = n_iters_main + (1000 * attempt) 
             
             for _ in tqdm(range(n_retry_iters), desc=f"Retry #{attempt+1}", leave=False): 
                 optimizer_retry.zero_grad()
@@ -164,15 +162,16 @@ def train_step_time_window(model, bounds, t_max, n_iters_main, use_lbfgs=True):
 
 def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step):
     """
-    Orchestrateur principal.
+    Orchestrateur principal avec sauvegardes intermédiaires à chaque dt.
     """
     save_dir = Config.save_dir
     batch_size = Config.batch_size
+    os.makedirs(save_dir, exist_ok=True) # Sécurité pour le dossier
     
     print(f"⚡ DÉMARRAGE TRAINING (Config Driven)")
-    print(f"   -> Warmup (t=0): {n_warmup} iters")
-    print(f"   -> Time Step: {Config.dt}, Max T: {Config.T_max}")
-    print(f"   -> Batch Size: {batch_size}")
+    print(f"    -> Warmup (t=0): {n_warmup} iters")
+    print(f"    -> Time Step: {Config.dt}, Max T: {Config.T_max}")
+    print(f"    -> Batch Size: {batch_size}")
 
     # --- PHASE 0 : WARMUP STRICT (t=0) ---
     if n_warmup > 0:
@@ -188,16 +187,18 @@ def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step):
             loss = torch.mean((u_pred_ic - u_true_ic)**2)
             loss.backward()
             optimizer.step()
-        print("   ✅ Warmup terminé.")
+        
+        # Sauvegarde post-warmup
+        torch.save(model.state_dict(), os.path.join(save_dir, "model_post_warmup.pth"))
+        print("    ✅ Warmup terminé et sauvegardé.")
 
     # --- PHASE 1 : TIME MARCHING ---
-    # Petite sécurité : si T_max est très petit
     T_end = Config.T_max
     if T_end < Config.dt: T_end = Config.dt
     
     time_steps = [round(t, 2) for t in np.arange(Config.dt, T_end + Config.dt/1000.0, Config.dt)]
     
-    for t_step in time_steps:
+    for i, t_step in enumerate(time_steps):
         print(f"\n⏳ --- PALIER TEMPOREL : [0, {t_step}] ---")
         
         success, final_err = train_step_time_window(
@@ -208,11 +209,21 @@ def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step):
             use_lbfgs=True
         )
         
-        # C'EST ICI QUE L'ERREUR DE SYNTAXE ETAIT POSSIBLEMENT :
         if success:
-            print(f"   ✅ PALIER VALIDÉ (Err: {final_err:.2%})")
+            print(f"    ✅ PALIER VALIDÉ (Err: {final_err:.2%})")
         else:
-            print(f"   ❌ PALIER NON VALIDÉ (Err: {final_err:.2%}). Expansion forcée.")
+            print(f"    ❌ PALIER NON VALIDÉ (Err: {final_err:.2%}). Expansion forcée.")
+        
+        # --- SAUVEGARDE INTERMÉDIAIRE À CHAQUE DT ---
+        checkpoint_name = f"model_checkpoint_t{t_step}.pth"
+        checkpoint_path = os.path.join(save_dir, checkpoint_name)
+        torch.save({
+            'step': i,
+            't_max': t_step,
+            'model_state_dict': model.state_dict(),
+            'final_error': final_err,
+        }, checkpoint_path)
+        print(f"    💾 Checkpoint sauvegardé : {checkpoint_name}")
 
     print("\n🎉 Entraînement terminé.")
     
