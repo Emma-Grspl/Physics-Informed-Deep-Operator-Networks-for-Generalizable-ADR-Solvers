@@ -53,9 +53,10 @@ def audit_global_fast(model, current_t_max):
         errors.append(err)
 
     if not errors: return False, 1.0
+    
+    # --- CORRECTION ICI ---
     mean_err = np.mean(errors)
-    return mean_error < Config.threshold, mean_error
-
+    return mean_err < Config.threshold, mean_err # J'avais mis 'mean_error' ici par erreur
 # --- FONCTION D'ENTRAINEMENT PAR PALIER ---
 
 def train_step_time_window(model, bounds, t_max, n_iters_main):
