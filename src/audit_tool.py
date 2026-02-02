@@ -7,28 +7,25 @@ from config import Config
 # --- IMPORT DU SOLVEUR ---
 sys.path.append(os.path.join(os.getcwd(), 'src'))
 try:
-    # On importe la fonction "intelligente" qui gère les BCs (Tanh/Gauss)
     from physics.solver import get_ground_truth_CN
 except ImportError:
     print("❌ Impossible d'importer get_ground_truth_CN depuis src.physics.solver")
     sys.exit(1)
 
-# --- LE MÉDECIN (Fonction Diagnostic Corrigée) ---
-def diagnose_model(model, device, threshold=0.03, t_max=None): # <--- Ajout de t_max
+def diagnose_model(model, device, threshold=0.03, t_max=None):
     """
-    Audite le modèle sur la fenêtre [0, t_max].
-    Renvoie une liste d'IDs (int) correspondant aux familles qui échouent.
+    Diagnostique chaque famille sur la fenêtre [0, t_max] complète.
+    Utilise la méthode ROBUSTE (Flatten) identique à l'audit global.
     """
     model.eval()
     
-    # Si t_max n'est pas fourni, on prend le max global (audit final)
+    # Par défaut, on audite tout si t_max n'est pas précisé
     if t_max is None: t_max = Config.T_max
 
-    # Paramètres de l'audit
-    Nx_AUDIT = 256
-    Nt_AUDIT = 200 # Suffisant pour la précision
-    
-    # Mapping Nom -> Liste des IDs générateurs
+    # Paramètres de résolution (identiques à l'audit global pour cohérence)
+    Nx = Config.Nx_audit
+    Nt = Config.Nt_audit
+
     families_map = {
         "Gaussian": [3, 4], 
         "Sin-Gauss": [1, 2], 
@@ -37,66 +34,57 @@ def diagnose_model(model, device, threshold=0.03, t_max=None): # <--- Ajout de t
     
     failed_ids = []
     
-    # Grille Spatiale fixe pour l'audit
-    x_np = np.linspace(Config.x_min, Config.x_max, Nx_AUDIT)
-    
-    # On veut prédire à t = t_max (le bout du palier actuel)
-    t_np = np.full(Nx_AUDIT, t_max)
-    xt_flat = np.stack([x_np, t_np], axis=1)
-    xt_tensor = torch.tensor(xt_flat, dtype=torch.float32).to(device)
-
-    print(f"\n🩺 DIAGNOSTIC EN COURS (t={t_max}, Seuil: {threshold:.1%})...")
+    print(f"\n🩺 DIAGNOSTIC EN COURS (t_max={t_max}, Seuil: {threshold:.1%})...")
     
     for fam_name, type_ids in families_map.items():
         errors = []
-        # On teste 20 cas aléatoires par famille (suffisant pour une moyenne)
+        # On teste 20 cas aléatoires par famille
         for _ in range(20): 
-            # 1. Tirage paramètres aléatoires (basé sur Config)
-            v = np.random.uniform(*Config.ranges['v'])
-            D = np.random.uniform(0.01, Config.ranges['D'][1])
-            mu = np.random.uniform(*Config.ranges['mu'])
-            A = np.random.uniform(*Config.ranges['A'])
-            x0 = 0.0 
-            sigma = np.random.uniform(0.2, Config.ranges['sigma'][1])
-            k = np.random.uniform(*Config.ranges['k'])
-            
+            # 1. Paramètres aléatoires
+            p_dict = Config.get_p_dict()
+            # On force le type pour tester la famille spécifique
             current_id = np.random.choice(type_ids)
+            p_dict['type'] = current_id 
             
-            # 2. Dictionnaire de paramètres pour le solveur intelligent
-            p_dict = {
-                'v': v, 'D': D, 'mu': mu, 'type': current_id,
-                'A': A, 'x0': x0, 'sigma': sigma, 'k': k
-            }
-            
-            # 3. Vérité Terrain (Avec gestion automatique des BCs !)
+            # 2. Vérité Terrain ROBUSTE
+            # On récupère TOUTE la grille (X, T) et TOUTE la solution U
             try:
-                # get_ground_truth_CN va choisir "tanh_pm1" ou "zero_zero" automatiquement
-                _, _, U_full = get_ground_truth_CN(
-                    p_dict, Config.x_min, Config.x_max, t_max, Nx_AUDIT, Nt_AUDIT
+                X_grid, T_grid, U_true_np = get_ground_truth_CN(
+                    p_dict, Config.x_min, Config.x_max, t_max, Nx, Nt
                 )
-                # On récupère la dernière ligne (t = t_max)
-                u_true = U_full[-1, :]
-                
             except Exception as e:
-                print(f"⚠️ Erreur solveur : {e}. On ignore ce cas.")
+                # print(f"⚠️ Erreur solveur : {e}") 
                 continue
+
+            # 3. Aplatissement (Comme l'Audit Global)
+            # Cela évite tout problème de transposition (Nx, Nt) vs (Nt, Nx)
+            X_flat = X_grid.flatten()
+            T_flat = T_grid.flatten()
+            U_true = U_true_np.flatten()
             
-            # 4. Prédiction DeepONet
-            p_val = [v, D, mu, current_id, A, x0, sigma, k]
-            # Création du tenseur de paramètres répété Nx fois
-            p_tensor = torch.tensor([p_val], dtype=torch.float32).to(device).repeat(Nx_AUDIT, 1)
+            # 4. Préparation Input DeepONet
+            xt_tensor = torch.tensor(np.stack([X_flat, T_flat], axis=1), dtype=torch.float32).to(device)
             
+            p_vec = np.array([p_dict['v'], p_dict['D'], p_dict['mu'], p_dict['type'], 
+                              p_dict['A'], p_dict['x0'], p_dict['sigma'], p_dict['k']])
+            # On répète les paramètres pour chaque point de la grille
+            p_tensor = torch.tensor(p_vec, dtype=torch.float32).unsqueeze(0).repeat(len(X_flat), 1).to(device)
+
+            # 5. Prédiction & Erreur
             with torch.no_grad():
                 u_pred = model(p_tensor, xt_tensor).cpu().numpy().flatten()
             
-            # 5. Calcul Erreur L2 Relative
-            norm = np.linalg.norm(u_true) + 1e-6
-            err = np.linalg.norm(u_true - u_pred) / norm
+            # Erreur L2 Relative sur tout le volume spatio-temporel
+            norm = np.linalg.norm(U_true) + 1e-7
+            err = np.linalg.norm(U_true - u_pred) / norm
             errors.append(err)
             
-        mean_err = np.mean(errors) if errors else 1.0
+        if not errors:
+            print(f"  - {fam_name:<12} : ??? (Erreur Solveur)")
+            continue
+
+        mean_err = np.mean(errors)
         status = "✅" if mean_err < threshold else "❌"
-        # Affichage propre aligné
         print(f"  - {fam_name:<12} : {mean_err:.2%} {status}")
         
         if mean_err > threshold:
