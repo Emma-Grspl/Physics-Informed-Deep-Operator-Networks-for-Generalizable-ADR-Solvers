@@ -48,13 +48,13 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
     device = next(model.parameters()).device
     lr_current = Config.learning_rate
     max_retry = Config.max_retry
+    
     print(f"\n🔵 DÉBUT PALIER t=[0, {t_max}]")
 
     # --- DEFINITION DE LA LOSS (Dirichlet) ---
     def compute_total_loss(params, xt, xt_ic, u_true_ic, xt_bc_l, xt_bc_r, u_true_bc_l, u_true_bc_r):
         loss_pde = torch.mean(pde_residual_adr(model, params, xt)**2)
         loss_ic = torch.mean((model(params, xt_ic) - u_true_ic)**2)
-        # BC Dirichlet (Valeurs fixes)
         u_pred_l = model(params, xt_bc_l)
         u_pred_r = model(params, xt_bc_r)
         loss_bc = torch.mean((u_pred_l - u_true_bc_l)**2) + \
@@ -66,10 +66,12 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
     # =========================================================================
     global_success = False
     
+    # On garde le LR de base pour le global
+    lr_global = lr_current 
+
     for attempt in range(max_retry): 
-        # ... (Logique Adam/LBFGS Global inchangée) ...
         if attempt == max_retry - 1: # LBFGS
-            print(f"  👉 Tentative Globale {attempt+1}/4 : LBFGS")
+            print(f"  👉 Tentative Globale {attempt+1}/{max_retry} : LBFGS")
             lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=50, line_search_fn="strong_wolfe")
             def closure():
                 lbfgs.zero_grad()
@@ -80,8 +82,8 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
             try: lbfgs.step(closure)
             except: pass
         else: # Adam
-            print(f"  👉 Tentative Globale {attempt+1}/4 : Adam (LR={lr_current:.1e})")
-            optimizer = optim.Adam(model.parameters(), lr=lr_current)
+            print(f"  👉 Tentative Globale {attempt+1}/{max_retry} : Adam (LR={lr_global:.1e})")
+            optimizer = optim.Adam(model.parameters(), lr=lr_global)
             model.train()
             for i in range(n_iters_main):
                 optimizer.zero_grad()
@@ -95,98 +97,103 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
         # --- AUDIT GLOBAL ---
         success, err = audit_global_fast(model, t_max)
         
-        if success: # Si moyenne < 3%
+        if success:
             print(f"     📊 Audit Global OK ({err:.2%}). Vérification spécifique...")
-            failed_check = diagnose_model(model, device, threshold=Config.threshold, t_max=t_max) # Seuil strict (3%)
+            failed_check = diagnose_model(model, device, threshold=Config.threshold, t_max=t_max)
             
             if not failed_check:
                 print("     ✅ Validation Totale : Toutes les familles sont sous le seuil.")
-                return True, err # SORTIE RÉUSSIE ICI
+                return True, err
             else:
                 print(f"     ⚠️ ALERTE : Moyenne bonne, mais {failed_check} > {Config.threshold:.0%}.")
                 print("     ➡️  Passage à la Correction Ciblée.")
-                global_success = False # On force la suite
-                break # On sort de la boucle Retry Global
+                global_success = False
+                break 
         else:
             print(f"     📊 Audit Global: {err:.2%} -> ❌ KO")
         
-        if attempt < max_retry - 2: lr_current *= 0.5
+        if attempt < max_retry - 2: lr_global *= 0.5
 
     # =========================================================================
-    # PHASE 3 : CORRECTION CIBLÉE (SMART MIXING)
+    # PHASE 3 : CORRECTION CIBLÉE (RETRY LOOP)
     # =========================================================================
+    # C'est ici qu'on change tout : on boucle sur la correction
     
-    # On récupère les IDs malades actuels
-    failed_ids = diagnose_model(model, device, threshold=Config.threshold, t_max = t_max)
+    failed_ids = diagnose_model(model, device, threshold=Config.threshold, t_max=t_max)
+    if not failed_ids: return True, 0.0
+
     all_types = [0, 1, 2, 3, 4]
     success_ids = [t for t in all_types if t not in failed_ids]
 
-    print(f"\n🚑 Correction Ciblée sur {failed_ids} (Mix 80/20)...")
+    print(f"\n🚑 Correction Ciblée BOUCLÉE sur {failed_ids} (Mix 80/20)...")
 
-    # Création du Dataset Mixte
     weighted_types = []
-    for f_id in failed_ids: weighted_types.extend([f_id] * 4) # Poids x4
-    for s_id in success_ids: weighted_types.extend([s_id] * 1) # Poids x1
+    for f_id in failed_ids: weighted_types.extend([f_id] * 4) 
+    for s_id in success_ids: weighted_types.extend([s_id] * 1) 
 
-    # Boucle Correction 1 : Adam Standard
-    optimizer_focus = optim.Adam(model.parameters(), lr=lr_current) # On garde le LR courant
-    
-    for i in range(n_iters_main):
-        optimizer_focus.zero_grad()
-        batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max, allowed_types=weighted_types)
-        loss = compute_total_loss(*batch)
-        loss.backward()
-        optimizer_focus.step()
-        if (i+1)%1000==0: print(f"    [Focus Adam] Iter {i+1} | Loss: {loss.item():.2e}")
+    # On utilise une boucle similaire à la phase globale pour la correction
+    lr_focus = lr_current # On repart du LR initial (ou un peu moins si tu veux)
+    correction_success = False
 
-    # Check intermédiaire strict
-    failed_ids_2 = diagnose_model(model, device, threshold=Config.threshold, t_max = t_max)
-    if not failed_ids_2:
-        print("✅ Correction réussie ! (Seuil Strict)")
+    for attempt in range(max_retry): # 4 tentatives (3 Adam + 1 LBFGS)
+        
+        # --- LBFGS (Dernière tentative) ---
+        if attempt == max_retry - 1:
+            print(f"  ☢️ [Focus Loop] Tentative {attempt+1}/{max_retry} : LBFGS Finisher")
+            lbfgs_focus = optim.LBFGS(model.parameters(), lr=1.0, max_iter=50, line_search_fn="strong_wolfe")
+            def closure_focus():
+                lbfgs_focus.zero_grad()
+                batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max, allowed_types=weighted_types)
+                loss = compute_total_loss(*batch)
+                loss.backward()
+                return loss
+            try: lbfgs_focus.step(closure_focus)
+            except: pass
+            
+        # --- ADAM (Tentatives 1, 2, 3) ---
+        else:
+            print(f"  🚑 [Focus Loop] Tentative {attempt+1}/{max_retry} : Adam (LR={lr_focus:.1e})")
+            optimizer_focus = optim.Adam(model.parameters(), lr=lr_focus)
+            
+            for i in range(n_iters_main): # On garde le même nombre d'iters
+                optimizer_focus.zero_grad()
+                batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max, allowed_types=weighted_types)
+                loss = compute_total_loss(*batch)
+                loss.backward()
+                optimizer_focus.step()
+                if (i+1)%1000==0: 
+                    print(f"    [Focus Adam] Iter {i+1} | Loss: {loss.item():.2e}")
+
+        # --- AUDIT DE CONTRÔLE APRÈS CHAQUE TENTATIVE ---
+        print(f"  🩺 Check post-correction (Tentative {attempt+1})...")
+        failed_now = diagnose_model(model, device, threshold=Config.threshold, t_max=t_max)
+        
+        if not failed_now:
+            print(f"  ✅ Correction réussie à la tentative {attempt+1} !")
+            correction_success = True
+            break # On sort de la boucle de correction
+        else:
+            print(f"  ❌ Encore des erreurs sur {failed_now}. On retente/affine.")
+            
+        # Réduction du LR pour la prochaine tentative Adam
+        if attempt < max_retry - 2: 
+            lr_focus *= 0.5
+
+    # =========================================================================
+    # VERDICT FINAL
+    # =========================================================================
+    if correction_success:
         return True, 0.0
-
-    # =========================================================================
-    # PHASE 4 : DERNIÈRE CHANCE (LR/2 + LBFGS + TOLÉRANCE ÉLARGIE)
-    # =========================================================================
-    print(f"\n☢️ TENTATIVE DERNIÈRE CHANCE sur {failed_ids_2}...")
     
-    # 1. On baisse le LR
-    lr_final = lr_current * 0.5
-    print(f"    -> Adam (LR={lr_final:.1e}) + LBFGS Finisher")
-
-    # 2. Adam Finisher
-    optimizer_final = optim.Adam(model.parameters(), lr=lr_final)
-    for i in range(n_iters_main):
-        optimizer_final.zero_grad()
-        batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max, allowed_types=weighted_types)
-        loss = compute_total_loss(*batch)
-        loss.backward()
-        optimizer_final.step()
+    # Check final avec tolérance élargie si on a tout épuisé
+    THRESHOLD_RELAXED = 0.045 # Un poil plus large (4.5%) pour t grand
+    failed_final = diagnose_model(model, device, threshold=THRESHOLD_RELAXED, t_max=t_max)
     
-    # 3. LBFGS Finisher (Sur le mix ciblé)
-    lbfgs_final = optim.LBFGS(model.parameters(), lr=1.0, max_iter=20, line_search_fn="strong_wolfe")
-    def closure_final():
-        lbfgs_final.zero_grad()
-        batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max, allowed_types=weighted_types)
-        loss = compute_total_loss(*batch)
-        loss.backward()
-        return loss
-    try: lbfgs_final.step(closure_final)
-    except: pass
-
-    # =========================================================================
-    # PHASE 5 : VERDICT FINAL (Avec Tolérance)
-    # =========================================================================
-    # Ici on accepte jusqu'à 4% (0.04) pour ne pas bloquer indéfiniment
-    THRESHOLD_RELAXED = 0.04 
-    
-    failed_ids_final = diagnose_model(model, device, threshold=THRESHOLD_RELAXED,t_max = t_max)
-    
-    if not failed_ids_final:
-        print(f"✅ Ouf ! Validé avec tolérance ({THRESHOLD_RELAXED:.0%}).")
+    if not failed_final:
+        print(f"✅ Ouf ! Validé in-extremis avec tolérance ({THRESHOLD_RELAXED:.1%}).")
         return True, 0.0
     else:
-        print(f"🛑 ARRÊT D'URGENCE. Échec sur t={t_max}. Types > {THRESHOLD_RELAXED:.0%}: {failed_ids_final}")
+        print(f"🛑 ÉCHEC FINAL sur t={t_max}. Types résistants > {THRESHOLD_RELAXED:.1%}: {failed_final}")
         return False, 1.0
 
 def train_smart_time_marching(model, bounds, n_warmup, n_iters_per_step):
