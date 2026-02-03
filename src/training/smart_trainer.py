@@ -16,7 +16,7 @@ def audit_global_fast(model, current_t_max):
     Nt = Config.Nt_audit
     errors = []
     
-    for _ in range(20): # 20 samples aléatoires
+    for _ in range(100): # 20 samples aléatoires
         p_dict = Config.get_p_dict()
         try:
             X_grid, T_grid, U_true_np = get_ground_truth_CN(
@@ -114,11 +114,6 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
         
         if attempt < max_retry - 2: lr_global *= 0.5
 
-    # =========================================================================
-    # PHASE 3 : CORRECTION CIBLÉE (RETRY LOOP)
-    # =========================================================================
-    # C'est ici qu'on change tout : on boucle sur la correction
-    
     failed_ids = diagnose_model(model, device, threshold=Config.threshold, t_max=t_max)
     if not failed_ids: return True, 0.0
 
@@ -131,16 +126,25 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
     for f_id in failed_ids: weighted_types.extend([f_id] * 4) 
     for s_id in success_ids: weighted_types.extend([s_id] * 1) 
 
-    # On utilise une boucle similaire à la phase globale pour la correction
-    lr_focus = lr_current # On repart du LR initial (ou un peu moins si tu veux)
+    lr_focus = lr_current 
     correction_success = False
 
-    for attempt in range(max_retry): # 4 tentatives (3 Adam + 1 LBFGS)
-        
-        # --- LBFGS (Dernière tentative) ---
+    # ON AUGMENTE LE NOMBRE D'ITÉRATIONS POUR LA CORRECTION
+    # C'est plus dur que le global, donc on double l'effort d'Adam
+    n_iters_focus = n_iters_main + 5000  
+
+    for attempt in range(max_retry): 
+        # --- LBFGS (Dernière tentative - L'ARTILLERIE LOURDE) ---
         if attempt == max_retry - 1:
-            print(f"  ☢️ [Focus Loop] Tentative {attempt+1}/{max_retry} : LBFGS Finisher")
-            lbfgs_focus = optim.LBFGS(model.parameters(), lr=1.0, max_iter=50, line_search_fn="strong_wolfe")
+            print(f"  ☢️ [Focus Loop] Tentative {attempt+1}/{max_retry} : LBFGS Finisher (Long)")
+            # MODIFICATION ICI : max_iter=500 (au lieu de 50) + tolerance_grad plus fine
+            lbfgs_focus = optim.LBFGS(
+                model.parameters(), 
+                lr=1.0, 
+                max_iter=500,  # <--- On lui laisse le temps de converger !
+                tolerance_grad=1e-9, 
+                line_search_fn="strong_wolfe"
+            )
             def closure_focus():
                 lbfgs_focus.zero_grad()
                 batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max, allowed_types=weighted_types)
@@ -155,38 +159,35 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
             print(f"  🚑 [Focus Loop] Tentative {attempt+1}/{max_retry} : Adam (LR={lr_focus:.1e})")
             optimizer_focus = optim.Adam(model.parameters(), lr=lr_focus)
             
-            for i in range(n_iters_main): # On garde le même nombre d'iters
+            for i in range(n_iters_focus): # Utilisation de n_iters_focus (10000)
                 optimizer_focus.zero_grad()
                 batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max, allowed_types=weighted_types)
                 loss = compute_total_loss(*batch)
                 loss.backward()
                 optimizer_focus.step()
-                if (i+1)%1000==0: 
-                    print(f"    [Focus Adam] Iter {i+1} | Loss: {loss.item():.2e}")
+                if (i+1) % 2000 == 0: # Print moins fréquent
+                    print(f"    [Focus Adam] Iter {i+1}/{n_iters_focus} | Loss: {loss.item():.2e}")
 
-        # --- AUDIT DE CONTRÔLE APRÈS CHAQUE TENTATIVE ---
+        # --- AUDIT ---
         print(f"  🩺 Check post-correction (Tentative {attempt+1})...")
         failed_now = diagnose_model(model, device, threshold=Config.threshold, t_max=t_max)
         
         if not failed_now:
             print(f"  ✅ Correction réussie à la tentative {attempt+1} !")
             correction_success = True
-            break # On sort de la boucle de correction
+            break 
         else:
             print(f"  ❌ Encore des erreurs sur {failed_now}. On retente/affine.")
             
-        # Réduction du LR pour la prochaine tentative Adam
-        if attempt < max_retry - 2: 
-            lr_focus *= 0.5
+        if attempt < max_retry - 2: lr_focus *= 0.5
 
     # =========================================================================
     # VERDICT FINAL
     # =========================================================================
-    if correction_success:
-        return True, 0.0
+    if correction_success: return True, 0.0
     
-    # Check final avec tolérance élargie si on a tout épuisé
-    THRESHOLD_RELAXED = 0.045 # Un poil plus large (4.5%) pour t grand
+    # Check final : On garde ta tolérance mais on espère que LBFGS a fait le job
+    THRESHOLD_RELAXED = 0.045 
     failed_final = diagnose_model(model, device, threshold=THRESHOLD_RELAXED, t_max=t_max)
     
     if not failed_final:
