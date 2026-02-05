@@ -38,10 +38,19 @@ def get_loss(model, batch, wr, wi, wb):
 # 1. OUTILS DE PILOTAGE (NTK, MONITORING, KING)
 # =============================================================================
 
+# =============================================================================
+# 1. OUTILS DE PILOTAGE (NTK, MONITORING, KING)
+# =============================================================================
+
 def compute_ntk_weights(model, batch, w_ic_ref):
     """ Ajuste dynamiquement le poids de la PDE pour qu'il équilibre la force de l'IC. """
     model.zero_grad()
     params, xt, xt_ic, u_true_ic, _, _, _, _ = batch
+
+    # 🔥 PATCH DE SÉCURITÉ (Indispensable ici aussi)
+    if not xt.requires_grad:
+        xt.requires_grad_(True)
+    # ----------------------------------------------
     
     loss_pde = torch.mean(pde_residual_adr(model, params, xt)**2)
     grad_pde = torch.autograd.grad(loss_pde, model.parameters(), retain_graph=True, create_graph=False)
@@ -59,7 +68,14 @@ def monitor_gradients(model, batch):
     model.zero_grad()
     params, xt, xt_ic, u_true_ic, _, _, _, _ = batch
     
+    # 🔥 PATCH DE SÉCURITÉ (Indispensable ici aussi)
+    if not xt.requires_grad:
+        xt.requires_grad_(True)
+    # ----------------------------------------------
+    
     lp = torch.mean(pde_residual_adr(model, params, xt)**2)
+    
+    # C'est ICI que ça plantait (ligne 63/170)
     gp = torch.autograd.grad(lp, model.parameters(), retain_graph=True)
     fp = torch.cat([g.view(-1) for g in gp])
     
@@ -70,7 +86,7 @@ def monitor_gradients(model, batch):
     ratio = (torch.norm(fi) / (torch.norm(fp) + 1e-8)).item()
     cos_sim = torch.nn.functional.cosine_similarity(fp, fi, dim=0).item()
     return ratio, cos_sim
-
+    
 class KingOfTheHill:
     """ Sauvegarde les meilleurs poids rencontrés et surveille la stagnation de la loss. """
     def __init__(self, model):
