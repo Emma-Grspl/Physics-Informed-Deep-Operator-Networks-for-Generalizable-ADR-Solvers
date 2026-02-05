@@ -126,7 +126,7 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
     device = next(model.parameters()).device
     king = KingOfTheHill(model)
     
-    # Setup des poids (Rampe < 0.3 ou NTK > 0.3)
+    # Setup des poids
     w_bc = cfg['loss_weights']['weight_bc']
     if t_max <= 0.3:
         w_res = 10.0 + (cfg['loss_weights']['first_w_res'] - 10.0) * (t_max / 0.3)
@@ -141,7 +141,6 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
         print(f"    🌀 Macro {macro+1}/{cfg['training']['nb_loop']}")
         
         # 1. Boucle Adam
-        # 1. Boucle Adam
         for retry in range(cfg['training']['max_retry']):
             optimizer = optim.Adam(model.parameters(), lr=current_lr)
             
@@ -152,8 +151,12 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
                 # --- ON DÉBALLE LE BATCH ---
                 params, xt, xt_ic, u_true_ic, _, _, _, _ = batch
                 
+                # 🔥 PATCH DE SÉCURITÉ OBLIGATOIRE 🔥
+                # Si le générateur (ou le cache) a oublié le gradient, on le force ICI.
                 if not xt.requires_grad:
                     xt.requires_grad_(True)
+                # ----------------------------------
+                
                 if mode == "NTK" and i % 100 == 0:
                     w_res = compute_ntk_weights(model, batch, w_ic)
                 
@@ -177,10 +180,23 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
         # 2. L-BFGS
         print("    ☢️ L-BFGS Finisher...")
         lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=500, line_search_fn="strong_wolfe")
+        
         def closure():
             lbfgs.zero_grad()
             b = generate_mixed_batch(cfg['training']['n_sample'], bounds, cfg['geometry']['x_min'], cfg['geometry']['x_max'], t_max)
-            loss = get_loss(model, b, w_res, w_ic, w_bc); loss.backward(); return loss
+            
+            # --- PATCH DE SÉCURITÉ L-BFGS ---
+            p, xt_bfgs, xic, uic, bc_l, bc_r, ubc_l, ubc_r = b
+            if not xt_bfgs.requires_grad:
+                xt_bfgs.requires_grad_(True)
+            
+            # On recrée le tuple propre
+            b_safe = (p, xt_bfgs, xic, uic, bc_l, bc_r, ubc_l, ubc_r)
+            
+            loss = get_loss(model, b_safe, w_res, w_ic, w_bc)
+            loss.backward()
+            return loss
+            
         try: lbfgs.step(closure)
         except: pass
         
@@ -196,7 +212,6 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
             return True, final_err
 
     return False, 1.0
-
 # =============================================================================
 # 3. GESTION DU TEMPS & AUDIT
 # =============================================================================
