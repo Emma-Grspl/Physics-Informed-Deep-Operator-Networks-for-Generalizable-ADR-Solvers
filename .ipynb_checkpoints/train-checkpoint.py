@@ -12,8 +12,8 @@ if src_path not in sys.path:
 
 # --- IMPORTS DÉDIÉS ---
 try:
-    # On importe le chargeur de config depuis le nouveau smart_trainer
-    from src.training.smart_trainer import load_config, train_smart_time_marching
+    # On importe le module entier pour pouvoir modifier sa config interne
+    import src.training.smart_trainer as trainer_module 
     from src.models.adr import PI_DeepONet_ADR
     print("✅ Imports réussis.")
 except ImportError as e:
@@ -21,20 +21,21 @@ except ImportError as e:
     sys.exit(1)
 
 def main():
-    # 1. CHARGEMENT DE LA CONFIGURATION YAML
-    # On charge le fichier YAML (assure-toi que le chemin est correct)
-    config_path = os.path.join(project_root, "src", "config_ADR.yaml")
-    cfg = load_config(config_path)
-
-    # 2. SETUP DOSSIER DE SAUVEGARDE
+    # 1. SETUP DOSSIER DE SAUVEGARDE (Dès le début)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     run_name = f"run_{timestamp}"
+    # On force le chemin absolu pour éviter les erreurs sur les nœuds de calcul
     run_dir = os.path.join(project_root, "results", run_name)
     os.makedirs(run_dir, exist_ok=True)
     
-    # On met à jour le dossier de sauvegarde dans la config chargée
-    cfg['audit']['save_dir'] = run_dir
+    # 2. INJECTION DE LA CONFIGURATION
+    # C'est ici que la magie opère : on modifie la config DU TRAINER directement
+    print(f"🔧 Mise à jour du dossier de sortie dans le Trainer...")
+    trainer_module.cfg['audit']['save_dir'] = run_dir
     
+    # On récupère aussi une référence locale pour l'affichage
+    cfg = trainer_module.cfg 
+
     print(f"🚀 Lancement Entraînement ADR (Jean Zay)")
     print(f"📁 Dossier de sortie : {run_dir}")
     print(f"⚙️  Paramètres clés :")
@@ -51,9 +52,9 @@ def main():
     model = PI_DeepONet_ADR().to(device)
 
     # 5. ENTRAÎNEMENT (Smart Time Marching)
-    # Note : Le trainer utilise 'cfg' interne, on passe juste le modèle et les ranges
     try:
-        model = train_smart_time_marching(
+        # On appelle la fonction via le module
+        model = trainer_module.train_smart_time_marching(
             model,
             bounds=cfg['physics_ranges']
         )
@@ -61,6 +62,7 @@ def main():
         print(f"❌ Erreur critique : {e}")
         emergency_path = os.path.join(run_dir, "model_CRASHED.pth")
         torch.save(model.state_dict(), emergency_path)
+        print(f"🆘 Sauvegarde d'urgence effectuée : {emergency_path}")
         raise e
 
     # 6. SAUVEGARDE FINALE

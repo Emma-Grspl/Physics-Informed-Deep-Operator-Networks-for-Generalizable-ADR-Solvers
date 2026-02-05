@@ -206,20 +206,57 @@ def generate_time_steps():
     return steps
 
 def audit_global_fast(model, t_max):
-    """ Évalue l'erreur moyenne du modèle par rapport à la vérité terrain. """
+    """ Évalue l'erreur moyenne L2 relative du modèle par rapport à la vérité terrain. """
     device = next(model.parameters()).device
     model.eval()
     errors = []
-    for _ in range(10): # Test sur 10 cas aléatoires
+    
+    # Test sur 10 cas aléatoires
+    for _ in range(100):
+        # 1. Génération de paramètres aléatoires
         p_dict = {k: np.random.uniform(v[0], v[1]) for k, v in cfg['physics_ranges'].items()}
-        p_dict['type'] = np.random.randint(0, 5)
+        p_dict['type'] = np.random.randint(0, 5) # Choix aléatoire du type
+        
         try:
-            _, _, U_true = get_ground_truth_CN(p_dict, cfg, t_step_max=t_max)
-            # Simule le calcul d'erreur relative
-            errors.append(0.02) 
-        except: continue
-    avg = np.mean(errors) if errors else 1.0
-    return avg < cfg['training']['threshold'], avg
+            # 2. Récupération de la Vérité Terrain (Solver)
+            X_grid, T_grid, U_true = get_ground_truth_CN(p_dict, cfg, t_step_max=t_max)
+            
+            # 3. Prédiction du Modèle (DeepONet)
+            # On prépare les entrées pour le modèle : [params] et [xt]
+            # Attention : Il faut formater les inputs pour qu'ils aient la shape (N_grid, ...)
+            
+            # Aplatissement des grilles pour le batch
+            x_flat = X_grid.flatten()
+            t_flat = T_grid.flatten()
+            n_points = len(x_flat)
+            
+            # Création du vecteur de paramètres répété
+            # Ordre: v, D, mu, type, A, x0, sigma, k
+            p_vec = np.array([p_dict['v'], p_dict['D'], p_dict['mu'], p_dict['type'], 
+                              p_dict['A'], 0.0, p_dict['sigma'], p_dict['k']]) # x0 est toujours 0
+            p_tensor = torch.tensor(p_vec, dtype=torch.float32).repeat(n_points, 1).to(device)
+            
+            xt_tensor = torch.tensor(np.stack([x_flat, t_flat], axis=1), dtype=torch.float32).to(device)
+            
+            with torch.no_grad():
+                u_pred_flat = model(p_tensor, xt_tensor).cpu().numpy().flatten()
+            
+            u_true_flat = U_true.flatten()
+            
+            # 4. Calcul de l'erreur Relative L2
+            # On ajoute un epsilon pour éviter la division par zéro sur les zones nulles
+            err = np.linalg.norm(u_true_flat - u_pred_flat) / (np.linalg.norm(u_true_flat) + 1e-8)
+            errors.append(err)
+            
+        except Exception as e:
+            # En cas d'échec du solveur (rare), on ignore ce cas
+            continue
+
+    if not errors: return False, 1.0 # Si tout a échoué
+    
+    avg_err = np.mean(errors)
+    print(f"      [Audit] Avg Rel L2 Error: {avg_err:.2%}")
+    return avg_err < cfg['training']['threshold'], avg_err
 
 def train_smart_time_marching(model, bounds):
     """ Boucle principale : Phase 0 (Warmup) + Phases Temporelles. """
