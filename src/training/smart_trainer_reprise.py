@@ -59,7 +59,6 @@ def train_step_reprise(model, bounds, t_max, n_iters_main):
     print(f"\n🔵 [REPRISE] PALIER t=[0, {t_max}]")
 
     # --- POIDS DYNAMIQUES MUSCLÉS ---
-    time_ratio = t_max / Config.T_max 
     # Pour la reprise, on applique directement les poids forts de Config_reprise
     w_ic_curr = Config.weight_ic
     w_res_curr = Config.weight_res
@@ -82,7 +81,8 @@ def train_step_reprise(model, bounds, t_max, n_iters_main):
             optimizer = optim.LBFGS(model.parameters(), lr=1.0, max_iter=50, line_search_fn="strong_wolfe")
             def closure():
                 optimizer.zero_grad()
-                batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max, n_points=Config.n_sample)
+                # Correction : Utilisation de Config.n_sample comme premier argument
+                batch = generate_mixed_batch(Config.n_sample, bounds, Config.x_min, Config.x_max, t_max)
                 loss = compute_total_loss(*batch)
                 loss.backward()
                 return loss
@@ -93,7 +93,8 @@ def train_step_reprise(model, bounds, t_max, n_iters_main):
             optimizer = optim.Adam(model.parameters(), lr=lr_current)
             for i in range(n_iters_main):
                 optimizer.zero_grad()
-                batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max, n_points=Config.n_sample)
+                # Correction : Utilisation de Config.n_sample comme premier argument
+                batch = generate_mixed_batch(Config.n_sample, bounds, Config.x_min, Config.x_max, t_max)
                 loss = compute_total_loss(*batch)
                 loss.backward()
                 optimizer.step()
@@ -121,7 +122,8 @@ def train_step_reprise(model, bounds, t_max, n_iters_main):
             optimizer = optim.LBFGS(model.parameters(), lr=1.0, max_iter=500, tolerance_grad=1e-9, line_search_fn="strong_wolfe")
             def closure_f():
                 optimizer.zero_grad()
-                batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max, n_points=Config.n_sample, allowed_types=weighted_types)
+                # Correction : Utilisation de Config.n_sample et allowed_types
+                batch = generate_mixed_batch(Config.n_sample, bounds, Config.x_min, Config.x_max, t_max, allowed_types=weighted_types)
                 loss = compute_total_loss(*batch)
                 loss.backward()
                 return loss
@@ -131,7 +133,8 @@ def train_step_reprise(model, bounds, t_max, n_iters_main):
             optimizer = optim.Adam(model.parameters(), lr=lr_focus)
             for i in range(n_iters_main + 2000):
                 optimizer.zero_grad()
-                batch = generate_mixed_batch(Config.batch_size, bounds, Config.x_min, Config.x_max, t_max, n_points=Config.n_sample, allowed_types=weighted_types)
+                # Correction : Utilisation de Config.n_sample et allowed_types
+                batch = generate_mixed_batch(Config.n_sample, bounds, Config.x_min, Config.x_max, t_max, allowed_types=weighted_types)
                 loss = compute_total_loss(*batch)
                 loss.backward()
                 optimizer.step()
@@ -151,7 +154,6 @@ def train_smart_time_marching_reprise(model, bounds, start_t, n_iters_per_step):
     save_dir = Config.save_dir
     print(f"\n⚡ DÉMARRAGE REPRISE (t_start={start_t})")
     
-    # On génère les pas de temps et on filtre pour ne garder que ceux > start_t
     all_steps = [round(t, 2) for t in np.arange(Config.dt, Config.T_max + 0.001, Config.dt)]
     time_steps = [t for t in all_steps if t > start_t + 0.01]
     
