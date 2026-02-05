@@ -259,40 +259,115 @@ def audit_global_fast(model, t_max):
     return avg_err < cfg['training']['threshold'], avg_err
 
 def train_smart_time_marching(model, bounds):
-    """ Boucle principale : Phase 0 (Warmup) + Phases Temporelles. """
+    """ 
+    Boucle principale : 
+    1. Warmup (Adam -> Audit -> L-BFGS si besoin -> Crash si échec)
+    2. Phases Temporelles (Multi-zones)
+    """
+    device = next(model.parameters()).device
     
-    # --- PHASE 0 : WARMUP (Condition Initiale seule) ---
+    # --- HELPER : Audit spécifique au Warmup (t=0) ---
+    def audit_warmup_l2(model_aud):
+        """ Retourne l'erreur L2 relative sur un batch de validation à t=0 """
+        model_aud.eval()
+        # Gros batch de validation (2000 pts) jamais vu
+        val_batch = generate_mixed_batch(
+            n_samples=2000, bounds_phy=bounds, 
+            x_min=cfg['geometry']['x_min'], x_max=cfg['geometry']['x_max'], 
+            Tmax=0.0 # Force t=0
+        )
+        p_val, _, x_ic_val, u_true_val, _, _, _, _ = val_batch
+        with torch.no_grad():
+            u_pred_val = model_aud(p_val, x_ic_val)
+        
+        # Erreur L2 Relative = ||Pred - True|| / ||True||
+        err = torch.norm(u_true_val - u_pred_val) / (torch.norm(u_true_val) + 1e-8)
+        return err.item()
+
+    # =========================================================================
+    # PHASE 0 : WARMUP ROBUSTE
+    # =========================================================================
     n_warmup = cfg['training'].get('n_warmup', 0)
+    
     if n_warmup > 0:
-        print(f"\n🧊 PHASE 0 : WARMUP ({n_warmup} itérations à t=0)")
+        print(f"\n🧊 PHASE 0 : WARMUP ({n_warmup} iters) | Seuil Audit: {cfg['training']['threshold']*100}%")
+        
+        # 1. Initialisation
         optimizer = optim.Adam(model.parameters(), lr=cfg['training']['learning_rate'])
+        king = KingOfTheHill(model)
         model.train()
         
+        # 2. Boucle ADAM (avec Rolling Back)
         for i in range(n_warmup):
             optimizer.zero_grad()
-            # On génère un batch forcé à t=0
-            batch = generate_mixed_batch(
-                cfg['training']['batch_size'], bounds, 
-                cfg['geometry']['x_min'], cfg['geometry']['x_max'], 0.0
-            )
+            # Batch t=0
+            batch = generate_mixed_batch(cfg['training']['batch_size'], bounds, 
+                                         cfg['geometry']['x_min'], cfg['geometry']['x_max'], 0.0)
             params, _, xt_ic, u_true_ic, _, _, _, _ = batch
             
-            # Perte IC uniquement
+            # Loss IC pure
             loss = torch.mean((model(params, xt_ic) - u_true_ic)**2)
-            
             loss.backward()
             optimizer.step()
             
+            # Update King & Monitoring
+            king.update(model, loss.item())
+            
             if (i + 1) % 1000 == 0:
-                print(f"      [Warmup] Iter {i+1}/{n_warmup} | Loss IC: {loss.item():.2e}")
-        
-        # Sauvegarde post-warmup pour sécurité
-        torch.save(model.state_dict(), f"{cfg['audit']['save_dir']}/model_post_warmup.pth")
-        print("✅ Warmup terminé. Passage à la marche en temps.")
+                print(f"      [Warmup Adam] Iter {i+1} | Loss: {loss.item():.2e}")
+                # Check Stagnation
+                if king.check_stagnation(loss.item(), window=2000): # Window fixée ou via YAML
+                    print("      ⏸️ Stagnation détectée sur le Warmup. Stop Adam.")
+                    break
 
-    # --- BOUCLE TEMPORELLE ---
+        # 3. CHARGEMENT DU CHAMPION & PREMIER AUDIT
+        print(f"      👑 Chargement du King (Loss: {king.best_loss:.2e})")
+        model.load_state_dict(king.best_state)
+        
+        l2_error = audit_warmup_l2(model)
+        print(f"      🔎 Audit Post-Adam : L2 Rel = {l2_error:.2%}")
+
+        # 4. DÉCISION : SUCCÈS OU L-BFGS DE SECOURS ?
+        if l2_error < cfg['training']['threshold']:
+            print("✅ Warmup validé du premier coup.")
+        else:
+            print(f"⚠️ Audit échec ({l2_error:.2%} > {cfg['training']['threshold']})... Activation L-BFGS.")
+            
+            # L-BFGS sur le King actuel
+            lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=500, line_search_fn="strong_wolfe")
+            
+            def closure():
+                lbfgs.zero_grad()
+                # On régénère un batch pour le LBFGS
+                b = generate_mixed_batch(cfg['training']['batch_size'], bounds, 
+                                         cfg['geometry']['x_min'], cfg['geometry']['x_max'], 0.0)
+                p, _, xic, uic, _, _, _, _ = b
+                l = torch.mean((model(p, xic) - uic)**2)
+                l.backward()
+                return l
+                
+            try: lbfgs.step(closure)
+            except: pass
+            
+            # On vérifie si le L-BFGS a amélioré le King
+            # (Note: LBFGS modifie le modèle en place, on regarde juste l'audit final)
+            final_l2 = audit_warmup_l2(model)
+            print(f"      🔎 Audit Post-LBFGS : L2 Rel = {final_l2:.2%}")
+            
+            if final_l2 > cfg['training']['threshold']:
+                raise RuntimeError(f"❌ ÉCHEC CRITIQUE WARMUP : Même le L-BFGS n'a pas suffi (Erreur: {final_l2:.2%}). Arrêt.")
+            
+            print("✅ L-BFGS a sauvé le Warmup.")
+
+        # Sauvegarde de sécurité
+        torch.save(model.state_dict(), f"{cfg['audit']['save_dir']}/model_post_warmup.pth")
+
+    # =========================================================================
+    # PHASE 1 : MARCHES EN TEMPS (Multi-Zones)
+    # =========================================================================
     time_steps = generate_time_steps()
     print(f"⚡ TRAINING MULTI-ZONES : {time_steps}")
+    
     for t_step in time_steps:
         success, _ = train_step_time_window(model, bounds, t_max=t_step, 
                                             n_iters_main=cfg['training']['n_iters_per_step'])
