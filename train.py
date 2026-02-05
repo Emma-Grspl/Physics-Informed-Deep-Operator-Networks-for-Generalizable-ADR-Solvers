@@ -49,7 +49,7 @@ def main():
     print(f"📱 Device : {device}")
     
     # 4. INITIALISATION MODÈLE
-    model = PI_DeepONet_ADR().to(device)
+    model = PI_DeepONet_ADR(cfg).to(device)
 
     # 5. ENTRAÎNEMENT (Smart Time Marching)
     try:
