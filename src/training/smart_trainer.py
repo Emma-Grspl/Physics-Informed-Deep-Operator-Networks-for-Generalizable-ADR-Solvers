@@ -92,7 +92,6 @@ class KingOfTheHill:
 
 # =============================================================================
 # LOGIQUE D'ENTRAÎNEMENT & CORRECTION
-# =============================================================================
 
 def targeted_correction(model, bounds, t_max, failed_ids, n_iters):
     """ Correction ciblée avec gestion intelligente des poids (Warmup vs Normal). """
