@@ -13,7 +13,7 @@ from src.audit_tool import diagnose_model
 from src.physics.solver import get_ground_truth_CN
 
 # =============================================================================
-# CONFIG & UTILS
+# 1. CONFIG & UTILS DE BASE
 # =============================================================================
 
 def load_config(path="src/config_ADR.yaml"):
@@ -21,6 +21,18 @@ def load_config(path="src/config_ADR.yaml"):
     with open(path, 'r') as f: return yaml.safe_load(f)
 
 cfg = load_config()
+
+def generate_time_steps():
+    """ Génère la liste des paliers de temps en fonction des zones définies. """
+    steps, current_t, t_limit = [], 0.0, cfg['geometry']['T_max']
+    for zone in cfg['time_stepping']['zones']:
+        t_end = t_limit if zone['t_end'] == -1 else zone['t_end']
+        dt = zone['dt']
+        while current_t < t_end - 1e-5:
+            current_t = round(current_t + dt, 3)
+            if current_t > t_limit: break
+            steps.append(current_t)
+    return steps
 
 def get_loss(model, batch, wr, wi, wb):
     params, xt, xt_ic, u_true_ic, xt_bc_l, xt_bc_r, u_true_bc_l, u_true_bc_r = batch
@@ -32,6 +44,10 @@ def get_loss(model, batch, wr, wi, wb):
     l_bc = torch.mean((model(params, xt_bc_l) - u_true_bc_l)**2) + \
            torch.mean((model(params, xt_bc_r) - u_true_bc_r)**2)
     return wr * l_pde + wi * l_ic + wb * l_bc
+
+# =============================================================================
+# 2. HELPER FUNCTIONS (NTK, MONITOR, KING)
+# =============================================================================
 
 def compute_ntk_weights(model, batch, w_ic_ref):
     model.zero_grad()
@@ -91,37 +107,56 @@ class KingOfTheHill:
         return abs(avg_old - avg_new) / (avg_old + 1e-9) < 0.001
 
 # =============================================================================
-# LOGIQUE D'ENTRAÎNEMENT & CORRECTION
+# 3. AUDIT GLOBAL
+# =============================================================================
+
+def audit_global_fast(model, t_max):
+    device = next(model.parameters()).device
+    model.eval()
+    errors = []
+    for _ in range(100):
+        p_dict = {k: np.random.uniform(v[0], v[1]) for k, v in cfg['physics_ranges'].items()}
+        p_dict['type'] = np.random.randint(0, 5)
+        try:
+            X_grid, T_grid, U_true = get_ground_truth_CN(p_dict, cfg, t_step_max=t_max)
+            x_flat, t_flat = X_grid.flatten(), T_grid.flatten()
+            p_vec = np.array([p_dict['v'], p_dict['D'], p_dict['mu'], p_dict['type'], 
+                              p_dict['A'], 0.0, p_dict['sigma'], p_dict['k']])
+            p_tensor = torch.tensor(p_vec, dtype=torch.float32).repeat(len(x_flat), 1).to(device)
+            xt_tensor = torch.tensor(np.stack([x_flat, t_flat], axis=1), dtype=torch.float32).to(device)
+            with torch.no_grad(): u_pred_flat = model(p_tensor, xt_tensor).cpu().numpy().flatten()
+            err = np.linalg.norm(U_true.flatten() - u_pred_flat) / (np.linalg.norm(U_true.flatten()) + 1e-8)
+            errors.append(err)
+        except: continue
+    if not errors: return False, 1.0
+    avg_err = np.mean(errors)
+    print(f"      [Audit Global] Avg Rel L2: {avg_err:.2%}")
+    return avg_err < cfg['training']['threshold'], avg_err
+
+# =============================================================================
+# 4. LOGIQUE D'ENTRAÎNEMENT & CORRECTION
+# =============================================================================
 
 def targeted_correction(model, bounds, t_max, failed_ids, n_iters):
-    """ Correction ciblée avec gestion intelligente des poids (Warmup vs Normal). """
+    """ Correction ciblée avec stratégie GUERRIER (90/10) et gestion Warmup. """
     print(f"\n🚑 CORRECTION CIBLÉE OBLIGATOIRE sur {failed_ids} ({n_iters} iters)")
     device = next(model.parameters()).device
     
-    # --- 1. STRATÉGIE GUERRIER (90/10) ---
+    # --- STRATÉGIE GUERRIER ---
     all_types = [0, 1, 2, 3, 4]
     weighted_types = []
-    
     for tid in all_types:
-        if tid in failed_ids:
-            weighted_types.extend([tid] * 45) # Poids massif
-        else:
-            weighted_types.extend([tid] * 1)  # Rappel
+        if tid in failed_ids: weighted_types.extend([tid] * 45) # Poids Massif
+        else: weighted_types.extend([tid] * 1) # Rappel
 
     print(f"   ⚔️  Mode Guerrier : Poids {len(weighted_types)} éléments (Ratio ~45:1)")
 
-    # --- 2. ADAPTATION DES POIDS (Le Correctif) ---
+    # --- GESTION DES POIDS (Warmup vs Normal) ---
     if t_max == 0.0:
-        # Cas WARMUP : Pas de physique, pas de bords temporels, JUSTE L'IC
         print("   🧊 Mode Warmup : Physique désactivée (w_res=0).")
-        w_res_loc = 0.0
-        w_bc_loc = 0.0
-        w_ic_loc = 100.0
+        w_res_loc, w_bc_loc, w_ic_loc = 0.0, 0.0, 100.0
     else:
-        # Cas NORMAL : Physique forte pour caler la phase
-        w_res_loc = 500.0  # On s'aligne sur ta config optimisée
-        w_bc_loc = cfg['loss_weights']['weight_bc']
-        w_ic_loc = 100.0
+        w_res_loc, w_bc_loc, w_ic_loc = 500.0, cfg['loss_weights']['weight_bc'], 100.0
 
     forced_lr = 5e-5 
     opt = optim.Adam(model.parameters(), lr=forced_lr)
@@ -133,11 +168,9 @@ def targeted_correction(model, bounds, t_max, failed_ids, n_iters):
                                      t_max, allowed_types=weighted_types)
         
         params, xt, xt_ic, u_true_ic, _, _, _, _ = batch
-        # Sécurité Gradient toujours là
         if not xt.requires_grad: xt.requires_grad_(True)
 
         opt.zero_grad()
-        # On utilise les poids adaptés ici
         loss = get_loss(model, batch, w_res_loc, w_ic_loc, w_bc_loc) 
         loss.backward()
         opt.step()
@@ -164,7 +197,6 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
     print(f"\n🔵 PALIER t={t_max} | Mode: {mode}")
     current_lr = cfg['training']['learning_rate']
     
-    # --- BOUCLE PRINCIPALE (ADAM + L-BFGS) ---
     for macro in range(cfg['training']['nb_loop']):
         print(f"    🌀 Macro {macro+1}/{cfg['training']['nb_loop']}")
         
@@ -191,16 +223,12 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
                     if king.check_stagnation(loss.item(), cfg['training']['rolling_window']):
                         print("      ⏸️ Stagnation détectée."); break
 
-            # Audit Global Rapide (Juste pour info ou sortie anticipée de la boucle Adam)
             success_global, err = audit_global_fast(model, t_max)
-            if success_global:
-                print("      ✅ Audit Global OK. Passage à l'audit spécifique.")
-                break # On sort de la boucle retry, MAIS on ne retourne pas encore True !
-            
+            if success_global: break 
             current_lr *= 0.5
             model.load_state_dict(king.best_state)
 
-        # 2. L-BFGS (Seulement si l'audit global n'était pas parfait ou systématiquement)
+        # 2. L-BFGS
         print("    ☢️ L-BFGS Finisher...")
         lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=500, line_search_fn="strong_wolfe")
         def closure():
@@ -214,49 +242,21 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
             return loss
         try: lbfgs.step(closure)
         except: pass
-        
-        # On remet le meilleur état connu
         model.load_state_dict(king.best_state)
 
-    # --- LE JUGE DE PAIX : DIAGNOSTIC SPÉCIFIQUE OBLIGATOIRE ---
     print("\n🔍 AUDIT FINAL OBLIGATOIRE PAR TYPE...")
     failed_ids = diagnose_model(model, device, cfg, t_max=t_max)
     
     if len(failed_ids) == 0:
-        # Tout est vert partout -> SUCCÈS
         _, final_err = audit_global_fast(model, t_max)
         return True, final_err
     else:
-        # Au moins un type rouge -> CORRECTION
         print(f"⚠️ Échec spécifique détecté sur {failed_ids}. Lancement Correction...")
         if targeted_correction(model, bounds, t_max, failed_ids, cfg['training']['n_iters_correction']):
             _, final_err = audit_global_fast(model, t_max)
             return True, final_err
         else:
             return False, 1.0
-
-def audit_global_fast(model, t_max):
-    device = next(model.parameters()).device
-    model.eval()
-    errors = []
-    for _ in range(100):
-        p_dict = {k: np.random.uniform(v[0], v[1]) for k, v in cfg['physics_ranges'].items()}
-        p_dict['type'] = np.random.randint(0, 5)
-        try:
-            X_grid, T_grid, U_true = get_ground_truth_CN(p_dict, cfg, t_step_max=t_max)
-            x_flat, t_flat = X_grid.flatten(), T_grid.flatten()
-            p_vec = np.array([p_dict['v'], p_dict['D'], p_dict['mu'], p_dict['type'], 
-                              p_dict['A'], 0.0, p_dict['sigma'], p_dict['k']])
-            p_tensor = torch.tensor(p_vec, dtype=torch.float32).repeat(len(x_flat), 1).to(device)
-            xt_tensor = torch.tensor(np.stack([x_flat, t_flat], axis=1), dtype=torch.float32).to(device)
-            with torch.no_grad(): u_pred_flat = model(p_tensor, xt_tensor).cpu().numpy().flatten()
-            err = np.linalg.norm(U_true.flatten() - u_pred_flat) / (np.linalg.norm(U_true.flatten()) + 1e-8)
-            errors.append(err)
-        except: continue
-    if not errors: return False, 1.0
-    avg_err = np.mean(errors)
-    print(f"      [Audit Global] Avg Rel L2: {avg_err:.2%}")
-    return avg_err < cfg['training']['threshold'], avg_err
 
 def train_smart_time_marching(model, bounds):
     device = next(model.parameters()).device
@@ -280,7 +280,6 @@ def train_smart_time_marching(model, bounds):
         
         model.load_state_dict(king.best_state)
         
-        # --- DIAGNOSTIC OBLIGATOIRE WARMUP ---
         print("🔎 Audit Détaillé du Warmup...")
         failed_warmup = diagnose_model(model, device, cfg, t_max=0.0)
         
@@ -290,11 +289,8 @@ def train_smart_time_marching(model, bounds):
             
         success_w, err_w = audit_global_fast(model, 0.0)
         print(f"      🔎 Audit Final Warmup : {err_w:.2%}")
-        if not success_w and len(diagnose_model(model, device, cfg, t_max=0.0)) > 0:
-             print("❌ ECHEC WARMUP : Le modèle ne peut pas apprendre t=0.")
-             # On peut choisir de lever une erreur ou continuer à ses risques et périls
 
-    # PHASE 1
+    # PHASE 1 : TIME MARCHING
     time_steps = generate_time_steps()
     print(f"⚡ TRAINING MULTI-ZONES : {time_steps}")
     for t_step in time_steps:
