@@ -95,42 +95,51 @@ class KingOfTheHill:
 # =============================================================================
 
 def targeted_correction(model, bounds, t_max, failed_ids, n_iters):
-    """ Correction ciblée avec stratégie GUERRIER (90/10). """
+    """ Correction ciblée avec gestion intelligente des poids (Warmup vs Normal). """
     print(f"\n🚑 CORRECTION CIBLÉE OBLIGATOIRE sur {failed_ids} ({n_iters} iters)")
     device = next(model.parameters()).device
     
-    # --- STRATÉGIE GUERRIER 90/10 ---
+    # --- 1. STRATÉGIE GUERRIER (90/10) ---
     all_types = [0, 1, 2, 3, 4]
     weighted_types = []
     
-    # On construit la liste pondérée pour le générateur
     for tid in all_types:
         if tid in failed_ids:
-            # POIDS MASSIF pour les cancres (approx 90-95% du batch)
-            weighted_types.extend([tid] * 45)
+            weighted_types.extend([tid] * 45) # Poids massif
         else:
-            # POIDS FAIBLE pour les bons élèves (Rappel mémoire)
-            weighted_types.extend([tid] * 1)
+            weighted_types.extend([tid] * 1)  # Rappel
 
     print(f"   ⚔️  Mode Guerrier : Poids {len(weighted_types)} éléments (Ratio ~45:1)")
 
-    # LR plus doux pour la finition
+    # --- 2. ADAPTATION DES POIDS (Le Correctif) ---
+    if t_max == 0.0:
+        # Cas WARMUP : Pas de physique, pas de bords temporels, JUSTE L'IC
+        print("   🧊 Mode Warmup : Physique désactivée (w_res=0).")
+        w_res_loc = 0.0
+        w_bc_loc = 0.0
+        w_ic_loc = 100.0
+    else:
+        # Cas NORMAL : Physique forte pour caler la phase
+        w_res_loc = 500.0  # On s'aligne sur ta config optimisée
+        w_bc_loc = cfg['loss_weights']['weight_bc']
+        w_ic_loc = 100.0
+
     forced_lr = 5e-5 
     opt = optim.Adam(model.parameters(), lr=forced_lr)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(opt, T_max=n_iters, eta_min=1e-6)
 
     for i in range(n_iters):
-        # Le générateur va piocher principalement les failed_ids grâce à weighted_types
         batch = generate_mixed_batch(cfg['training']['n_sample'], bounds, 
                                      cfg['geometry']['x_min'], cfg['geometry']['x_max'], 
                                      t_max, allowed_types=weighted_types)
         
         params, xt, xt_ic, u_true_ic, _, _, _, _ = batch
+        # Sécurité Gradient toujours là
         if not xt.requires_grad: xt.requires_grad_(True)
 
         opt.zero_grad()
-        # On garde une pression physique forte
-        loss = get_loss(model, batch, 200.0, 100.0, cfg['loss_weights']['weight_bc']) 
+        # On utilise les poids adaptés ici
+        loss = get_loss(model, batch, w_res_loc, w_ic_loc, w_bc_loc) 
         loss.backward()
         opt.step()
         scheduler.step()
@@ -138,7 +147,6 @@ def targeted_correction(model, bounds, t_max, failed_ids, n_iters):
         if (i+1) % 1000 == 0: 
             print(f"      [Focus] Iter {i+1} | Loss: {loss.item():.2e}")
     
-    # Nouvelle vérification stricte
     failed_now = diagnose_model(model, device, cfg, t_max=t_max)
     return len(failed_now) == 0
 
