@@ -192,19 +192,40 @@ def targeted_correction(model, bounds, t_max, failed_ids, n_iters):
 def train_step_time_window(model, bounds, t_max, n_iters_main):
     device = next(model.parameters()).device
     
-    # 👑 LE KING GLOBAL : Initialisé au début du palier, survit à tout
+    # 👑 LE KING GLOBAL
     king = KingOfTheHill(model)
     
     # Config poids
+    # --- CONFIGURATION DES POIDS (RAMPE DOUCE) ---
     w_bc = cfg['loss_weights']['weight_bc']
-    if t_max <= 0.3:
-        w_res = 10.0 + (cfg['loss_weights']['first_w_res'] - 10.0) * (t_max / 0.3)
-        w_ic, mode = cfg['loss_weights']['weight_ic_init'], "RAMPE"
+    
+    # On définit la fin de la période de chauffe (correspond à la fin de zone 2)
+    t_ramp_end = 0.3 
+    
+    if t_max <= t_ramp_end:
+        # MODE RAMPE PROGRESSIVE
+        # Avant : w_res commençait à 10.0 -> Trop violent
+        # Après : w_res commence à 0.1 -> Douceur absolue
+        start_w_res = 0.1
+        target_w_res = cfg['loss_weights']['first_w_res'] # 500.0
+        
+        # Formule d'interpolation linéaire
+        ratio = t_max / t_ramp_end
+        w_res = start_w_res + (target_w_res - start_w_res) * ratio
+        
+        # On garde l'IC très forte pour servir d'ancre pendant que la physique monte
+        w_ic = cfg['loss_weights']['weight_ic_init'] 
+        mode = f"RAMPE (w_res={w_res:.1f})"
     else:
-        w_res, w_ic, mode = cfg['loss_weights']['first_w_res'], cfg['loss_weights']['weight_ic_final'], "NTK"
-
+        # MODE CROISIÈRE (NTK)
+        w_res, w_ic = cfg['loss_weights']['first_w_res'], cfg['loss_weights']['weight_ic_final']
+        mode = "NTK"
+        
     print(f"\n🔵 PALIER t={t_max} | Mode: {mode}")
     current_lr = cfg['training']['learning_rate']
+    
+    # Flag pour savoir si on a fini l'entraînement (Global OK)
+    training_done = False
     
     # --- BOUCLE MACRO ---
     for macro in range(cfg['training']['nb_loop']):
@@ -212,8 +233,7 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
         
         # 1. Adam Retries
         for retry in range(cfg['training']['max_retry']):
-            # ♻️ RÈGLE D'OR : On repart toujours du meilleur état connu
-            model.load_state_dict(king.best_state)
+            model.load_state_dict(king.best_state) # On repart du champion
             
             optimizer = optim.Adam(model.parameters(), lr=current_lr)
             for i in range(n_iters_main):
@@ -229,7 +249,6 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
                 loss.backward()
                 optimizer.step()
                 
-                # Mise à jour du King si Loss Record
                 king.update(model, loss.item())
 
                 if i % 1000 == 0:
@@ -239,18 +258,20 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
             # 🚀 FAST TRACK : Audit Immédiat après Adam
             success_adam, err = audit_global_fast(model, t_max)
             if success_adam:
-                print("      🚀 SUCCESS (Adam). Sortie immédiate du palier.")
-                return True, err
+                print("      🚀 SUCCESS GLOBAL (Adam). Passage à l'audit spécifique...")
+                training_done = True
+                break # Sort de la boucle 'retry'
             
-            # Si échec, on réduit le LR pour la prochaine retry
-            current_lr *= 0.5
+            current_lr *= 0.5 # Si échec, on réduit le LR
 
-        # 2. L-BFGS (Une fois les retries Adam finies)
+        # Si Adam a réussi, on casse la boucle Macro aussi
+        if training_done:
+            break 
+
+        # 2. L-BFGS (Seulement si Adam n'a pas suffi)
         print("    ☢️ L-BFGS Finisher...")
-        # On charge le meilleur état avant de lancer L-BFGS
         model.load_state_dict(king.best_state)
         
-        # On mesure l'erreur AVANT L-BFGS pour comparer
         _, err_before = audit_global_fast(model, t_max)
         
         lbfgs = optim.LBFGS(model.parameters(), lr=1.0, max_iter=500, line_search_fn="strong_wolfe")
@@ -266,32 +287,39 @@ def train_step_time_window(model, bounds, t_max, n_iters_main):
         try: lbfgs.step(closure)
         except: pass
         
-        # 🚀 FAST TRACK : Audit Immédiat après L-BFGS
         success_lbfgs, err_after = audit_global_fast(model, t_max)
         
-        # 🛡️ BOUCLIER ANTI-RÉGRESSION
         if err_after > err_before:
-            print(f"      🛡️ L-BFGS a dégradé le modèle ({err_before:.2%} -> {err_after:.2%}). ROLLBACK.")
-            model.load_state_dict(king.best_state) # On revient au King Adam
+            print(f"      🛡️ L-BFGS a dégradé ({err_before:.2%} -> {err_after:.2%}). ROLLBACK.")
+            model.load_state_dict(king.best_state) 
         else:
-            print(f"      ✅ L-BFGS a amélioré/maintenu l'audit ({err_before:.2%} -> {err_after:.2%}).")
+            print(f"      ✅ L-BFGS amélioration/maintien ({err_before:.2%} -> {err_after:.2%}).")
             if success_lbfgs:
-                print("      🚀 SUCCESS (L-BFGS). Sortie immédiate du palier.")
-                return True, err_after
+                print("      🚀 SUCCESS GLOBAL (L-BFGS). Passage à l'audit spécifique...")
+                training_done = True
+                break # Sort de la boucle Macro
 
-    # --- DERNIÈRE CHANCE : CORRECTION SPÉCIFIQUE ---
+    # --- LE JUGE DE PAIX : DIAGNOSTIC SPÉCIFIQUE OBLIGATOIRE ---
+    # On arrive TOUJOURS ici, que ce soit par succès rapide ou fin des itérations
     print("\n🔍 AUDIT FINAL OBLIGATOIRE PAR TYPE...")
+    
+    # On s'assure d'avoir le meilleur modèle chargé
+    if not training_done: # Si on est sorti par épuisement des boucles
+        model.load_state_dict(king.best_state)
+
     failed_ids = diagnose_model(model, device, cfg, t_max=t_max)
     
     if len(failed_ids) == 0:
+        print("✅ TOUS TYPES VALIDES.")
         _, final_err = audit_global_fast(model, t_max)
         return True, final_err
     else:
-        print(f"⚠️ Échec spécifique sur {failed_ids}. Correction...")
+        print(f"⚠️ Échec spécifique sur {failed_ids} malgré succès global. Correction...")
         if targeted_correction(model, bounds, t_max, failed_ids, cfg['training']['n_iters_correction']):
             _, final_err = audit_global_fast(model, t_max)
             return True, final_err
         else:
+            print("🛑 Correction échouée.")
             return False, 1.0
 
 def train_smart_time_marching(model, bounds):

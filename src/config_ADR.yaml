@@ -9,8 +9,9 @@ geometry:
 
 time_stepping:
   zones:
-    - {t_end: 0.3, dt: 0.05}
-    - {t_end: 3.0, dt: 0.1}  
+    - {t_end: 0.05, dt: 0.01}  # ZONE 1 : IGNITION (Micro-pas pour absorber le choc)
+    - {t_end: 0.30, dt: 0.05}  # ZONE 2 : ACCÉLÉRATION (On reprend ton pas normal)
+    - {t_end: 3.00, dt: 0.10}  # ZONE 3 : CROISIÈRE
 
 # -------------------------------------------------------------------------
 # 2. PHYSIQUE (Intervalles de variation)
