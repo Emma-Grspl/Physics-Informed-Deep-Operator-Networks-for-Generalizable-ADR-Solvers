@@ -71,4 +71,4 @@ audit:
   Nx_solver: 500
   Nx_audit: 500
   Nt_audit: 200
-  save_dir: "./outputs"
+  save_dir: "outputs/checkpoints_shared"
