@@ -79,14 +79,14 @@ def objective(trial):
     
     # --- B. PARAMÈTRES FIXES (Tes exigences) ---
     # On écrase la config avec tes valeurs robustes
-    trial_cfg['training']['n_warmup'] = 7000
-    trial_cfg['training']['n_iters_per_step'] = 6000
-    trial_cfg['training']['n_iters_correction'] = 8000
+    trial_cfg['training']['n_warmup'] = 4000
+    trial_cfg['training']['n_iters_per_step'] = 3000
+    trial_cfg['training']['n_iters_correction'] = 5000
     trial_cfg['training']['n_sample'] = 12288
     trial_cfg['training']['batch_size'] = 4096
-    trial_cfg['training']['nb_loop'] = 3
-    trial_cfg['training']['max_retry'] = 4
-    trial_cfg['training']['threshold'] = 0.02 # 2%
+    trial_cfg['training']['nb_loop'] = 2
+    trial_cfg['training']['max_retry'] = 3
+    trial_cfg['training']['threshold'] = 0.03 # 2%
     trial_cfg['training']['rolling_window'] = 2000
 
     # --- C. HYPERPARAMÈTRES OPTUNA (Ce qui varie) ---

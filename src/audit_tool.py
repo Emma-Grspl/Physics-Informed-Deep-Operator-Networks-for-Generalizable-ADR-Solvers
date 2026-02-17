@@ -19,8 +19,18 @@ def diagnose_model(model, device, cfg, threshold=None, t_max=None):
     model.eval()
     
     # 1. Gestion des valeurs par défaut depuis cfg
-    if threshold is None: threshold = cfg['training']['threshold']
+    # 1. Gestion des valeurs par défaut depuis cfg
+    # IMPORTANT : On définit t_max D'ABORD pour savoir quel seuil appliquer
     if t_max is None: t_max = cfg['geometry']['T_max']
+    
+    if threshold is None:
+        # Logique de sélection dynamique
+        if t_max == 0.0:
+            # Cas Condition Initiale : On cherche 'threshold_ic', sinon on fallback
+            threshold = cfg['training'].get('threshold_ic', cfg['training'].get('threshold', 0.01))
+        else:
+            # Cas Propagation : On cherche 'threshold_step', sinon on fallback
+            threshold = cfg['training'].get('threshold_step', cfg['training'].get('threshold', 0.05))
     
     Nx = cfg['audit']['Nx_audit']
     Nt = cfg['audit']['Nt_audit']

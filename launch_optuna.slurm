@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=ADR_NewC     # Nom du job
+#SBATCH --job-name=ADR_Optuna     # Nom du job
 #SBATCH --output=slurm/log/%x_%j.out
 #SBATCH --error=slurm/log/%x_%j.err
 #SBATCH -A fdb@v100                 # <--- TON COMPTE PROJET ICI
@@ -23,4 +23,4 @@ echo "🚀 Job lancé sur $SLURMD_NODENAME"
 nvidia-smi
 
 # Lancement de ton script d'entraînement
-srun python train.py
+srun python tune_optuna.py

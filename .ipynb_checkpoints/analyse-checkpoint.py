@@ -213,7 +213,7 @@ def run_analysis(model, cfg, device):
     plt.close()
 
 if __name__ == "__main__":
-    MODEL_PATH = "run_20260208-092447/model_final.pth"
+    MODEL_PATH = "outputs/first results PINN/run_20260208-092447/model_final.pth"
     if not os.path.exists(MODEL_PATH):
         MODEL_PATH = "run_20260208-092447/model_latest.pth"
         if not os.path.exists(MODEL_PATH):

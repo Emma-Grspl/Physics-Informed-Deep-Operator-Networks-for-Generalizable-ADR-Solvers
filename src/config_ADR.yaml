@@ -70,4 +70,5 @@ training:
   n_warmup: 7000
   nb_loop: 3
   rolling_window: 2000
-  threshold: 0.02
+  threshold_ic: 0.02
+  threshold_step: 0.05

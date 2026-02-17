@@ -1,0 +1,74 @@
+# -------------------------------------------------------------------------
+# 1. GÉOMÉTRIE & TEMPS (Stratégie de Zones)
+# -------------------------------------------------------------------------
+
+geometry:
+  x_min: -5.0
+  x_max: 8.0
+  T_max: 3.0  
+
+time_stepping:
+  zones:
+    - {t_end: 0.05, dt: 0.01}  # ZONE 1 : IGNITION (Micro-pas pour absorber le choc)
+    - {t_end: 0.30, dt: 0.05}  # ZONE 2 : ACCÉLÉRATION (On reprend ton pas normal)
+    - {t_end: 3.00, dt: 0.10}  # ZONE 3 : CROISIÈRE
+
+# -------------------------------------------------------------------------
+# 2. PHYSIQUE (Intervalles de variation)
+# -------------------------------------------------------------------------
+physics_ranges:
+  v: [0.5, 1.0]
+  D: [0.01, 0.2]
+  mu: [0.0, 1.0]
+  A: [0.7, 1.0]
+  x0: [0.0, 0.0]
+  sigma: [0.4, 0.8]
+  k: [1.0, 3.0]
+
+# -------------------------------------------------------------------------
+# 3. ARCHITECTURE DU MODÈLE (DeepONet)
+# -------------------------------------------------------------------------
+model:
+  branch_depth: 6
+  branch_width: 256
+  trunk_depth: 5
+  trunk_width: 256
+  latent_dim: 256
+  # Encodage de Fourier
+  nFourier: 128
+  sFourier: [0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 16.0, 24.0]
+
+# -------------------------------------------------------------------------
+# 4. HYPERPARAMÈTRES & LOGIQUE DE BOUCLE
+# -------------------------------------------------------------------------
+training:
+  learning_rate: 0.0001
+  n_warmup: 7000           # Itérations initiales à t=0
+  n_iters_per_step: 6000    # Itérations Adam Global
+  n_iters_correction: 8000  # <--- Ajout : Itérations pour la correction ciblée
+  n_sample: 12288          # Densité de points (On reste sur ta valeur haute)
+  batch_size: 4096
+  
+  # Logique King of the Hill / Macro
+  nb_loop: 3                # Nombre de Cycles (Adam + LBFGS)
+  max_retry: 4              # Retries Adam par cycle
+  threshold: 0.03           # Seuil Audit (3%)
+  rolling_window: 2000      # Fenêtre pour le Rolling Check
+
+# -------------------------------------------------------------------------
+# 5. POIDS DES PERTES (Loss Weights)
+# -------------------------------------------------------------------------
+loss_weights:
+  weight_ic_init: 500.0     # Pour le début de la rampe
+  weight_ic_final: 100.0    # Pour le mode NTK
+  weight_bc: 100.0
+  first_w_res: 500.0        # Cible w_res à atteindre à t=0.3
+
+# -------------------------------------------------------------------------
+# 6. SOLVEUR & AUDIT
+# -------------------------------------------------------------------------
+audit:
+  Nx_solver: 500
+  Nx_audit: 500
+  Nt_audit: 200
+  save_dir: "/lustre/fswork/projects/rech/fdb/usv13rn/These_DeepONet_ADR/outputs/checkpoints_shared"

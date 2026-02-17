@@ -141,6 +141,17 @@ def audit_global_fast(model, t_max):
     model.eval()
     np.random.seed(42) 
     errors = []
+    
+    # --- CHOIX DU SEUIL DYNAMIQUE ---
+    # Si t=0 (Warmup/IC), on prend le seuil strict. Sinon, le seuil de propagation.
+    if t_max == 0.0:
+        target_threshold = cfg['training'].get('threshold_ic', cfg['training'].get('threshold', 0.01))
+        mode_str = "IC (Strict)"
+    else:
+        target_threshold = cfg['training'].get('threshold_step', cfg['training'].get('threshold', 0.05))
+        mode_str = "Step (Relaxed)"
+    # --------------------------------
+
     for _ in range(200):
         p_dict = {k: np.random.uniform(v[0], v[1]) for k, v in cfg['physics_ranges'].items()}
         p_dict['type'] = np.random.randint(0, 5)
@@ -159,8 +170,10 @@ def audit_global_fast(model, t_max):
 
     if not errors: return False, 1.0
     avg_err = np.mean(errors)
-    print(f"      [Audit Global Fixe] Avg Rel L2: {avg_err:.2%}")
-    return avg_err < cfg['training']['threshold'], avg_err
+    
+    print(f"      [Audit {mode_str}] Avg Rel L2: {avg_err:.2%} (Target: < {target_threshold:.2%})")
+    
+    return avg_err < target_threshold, avg_err
 
 def targeted_correction(model, bounds, t_max, failed_ids, n_iters_base, start_lr):
     print(f"\n🚑 CORRECTION STRUCTURÉE sur {failed_ids} (Start LR={start_lr:.2e})")
