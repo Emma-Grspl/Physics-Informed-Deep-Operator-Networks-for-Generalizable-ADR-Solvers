@@ -37,8 +37,6 @@ def generate_time_steps():
 
 def find_latest_checkpoint(save_dir):
     import os, glob, re
-    
-    # Force le chemin en absolu pour éviter les pièges de dossier courant
     abs_save_dir = os.path.abspath(save_dir)
     pattern = os.path.join(abs_save_dir, "model_checkpoint_t*.pth")
     
@@ -51,8 +49,7 @@ def find_latest_checkpoint(save_dir):
     if len(files) > 0:
         print(f"   📋 Liste : {[os.path.basename(f) for f in files[:3]]}...")
 
-    if not files:
-        return None, 0.0
+    if not files: return None, 0.0
     
     max_t = -1.0
     best_file = None
@@ -171,11 +168,14 @@ def audit_global_fast(model, t_max):
     
     return avg_err < target_threshold, avg_err
 
-# ---> MODIFICATION ICI : Ajout de target_threshold=None
 def targeted_correction(model, bounds, t_max, failed_ids, n_iters_base, start_lr, target_threshold=None):
     print(f"\n🚑 CORRECTION STRUCTURÉE sur {failed_ids} (Start LR={start_lr:.2e})")
     device = next(model.parameters()).device
     king_corr = KingOfTheHill(model)
+    
+    # NOUVEAU : Traqueur du meilleur modèle global
+    save_dir = cfg['audit']['save_dir'] 
+    best_val_err = float('inf')
     
     all_types = [0, 1, 2, 3, 4]
     weighted_types = []
@@ -209,7 +209,13 @@ def targeted_correction(model, bounds, t_max, failed_ids, n_iters_base, start_lr
                 king_corr.update(model, loss.item())
                 if i % 500 == 0: pbar.set_postfix({"Loss": f"{loss.item():.2e}"})
 
-            # ---> MODIFICATION ICI : On passe target_threshold à diagnose_model
+            # ---> FILET DE SÉCURITÉ : Sauvegarde du record global
+            _, val_err = audit_global_fast(model, t_max)
+            if val_err < best_val_err:
+                best_val_err = val_err
+                torch.save(model.state_dict(), f"{save_dir}/model_best_validation.pth")
+                print(f"      🌟 NOUVEAU RECORD GLOBAL : {val_err:.2%} ! (Sauvegardé dans model_best_validation.pth)")
+
             failed_now = diagnose_model(model, device, cfg, threshold=target_threshold, t_max=t_max)
             if len(failed_now) == 0:
                 print("      🚀 SUCCESS CORRECTION (Adam).")
@@ -235,7 +241,13 @@ def targeted_correction(model, bounds, t_max, failed_ids, n_iters_base, start_lr
             try: lbfgs.step(closure)
             except: pass
             
-            # ---> MODIFICATION ICI : On passe target_threshold à diagnose_model
+            # ---> FILET DE SÉCURITÉ : Sauvegarde du record global
+            _, val_err = audit_global_fast(model, t_max)
+            if val_err < best_val_err:
+                best_val_err = val_err
+                torch.save(model.state_dict(), f"{save_dir}/model_best_validation.pth")
+                print(f"      🌟 NOUVEAU RECORD GLOBAL : {val_err:.2%} ! (Sauvegardé dans model_best_validation.pth)")
+
             failed_now = diagnose_model(model, device, cfg, threshold=target_threshold, t_max=t_max)
             if len(failed_now) == 0:
                 print("      🚀 SUCCESS CORRECTION (L-BFGS).")
@@ -355,11 +367,10 @@ def train_smart_time_marching(model, bounds):
     load_dir = "/lustre/fswork/projects/rech/fdb/usv13rn/These_DeepONet_ADR/outputs/checkpoints_shared"
     
     # 2. DOSSIER D'ÉCRITURE (Le run actuel)
-    # On garde ce que le YAML ou train.py a envoyé
     save_dir = cfg['audit']['save_dir'] 
     os.makedirs(save_dir, exist_ok=True)
     
-    # 🕵️ REPRISE AUTOMATIQUE (On cherche dans load_dir !)
+    # 🕵️ REPRISE AUTOMATIQUE
     latest_file, max_t = find_latest_checkpoint(load_dir)
     reprise_active = False
 
@@ -376,7 +387,7 @@ def train_smart_time_marching(model, bounds):
     else:
         print("\n✨ Démarrage d'un nouvel entraînement.")
 
-    # PHASE 0 : WARMUP (Seulement si pas de reprise ou reprise à 0.0)
+    # PHASE 0 : WARMUP
     if not reprise_active or max_t <= 0.0:
         n_warmup = cfg['training'].get('n_warmup', 0)
         if n_warmup > 0:
@@ -426,9 +437,8 @@ def train_smart_time_marching(model, bounds):
     # =========================================================================
     print("\n💎 DÉBUT DU POLISSAGE FINAL (Objectif: < 2% partout)...")
 
-    # 1. On recharge le meilleur checkpoint global pour être sûr de partir du top
+    # 1. On recharge le meilleur checkpoint global
     final_t = cfg['geometry']['T_max']
-    # On cherche le fichier correspondant au temps max (ou celui où on s'est arrêté)
     last_checkpoint_path = f"{save_dir}/model_checkpoint_t{time_steps[-1]}.pth"
     
     if os.path.exists(last_checkpoint_path):
@@ -444,7 +454,6 @@ def train_smart_time_marching(model, bounds):
         print(f"⚠️ Familles au-dessus de {target_strict:.1%} : {failed_ids}")
         print(f"🛠️ Lancement du Fine-Tuning Spécifique...")
 
-        # ---> MODIFICATION ICI : On passe target_threshold=target_strict
         success_polish = targeted_correction(
             model, 
             bounds, 
@@ -462,12 +471,10 @@ def train_smart_time_marching(model, bounds):
                 'model_state_dict': model.state_dict(),
                 'note': 'Polished < 2%'
             }, f"{save_dir}/model_final_elite_2percent.pth")
-            
             diagnose_model(model, device, cfg, threshold=target_strict, t_max=final_t)
         else:
-            print("🔸 Le modèle a progressé mais n'a pas cassé la barre des 2% partout.")
-            torch.save(model.state_dict(), f"{save_dir}/model_final_improved.pth")
-
+            print("🔸 Le modèle n'a pas passé les 2% partout, mais le MEILLEUR modèle a été sauvegardé au vol !")
+            print(f"👉 N'oublie pas d'utiliser le fichier : {save_dir}/model_best_validation.pth pour tes inférences !")
     else:
         print("🎉 INCROYABLE ! Le modèle est déjà sous les 2% partout. Rien à faire.")
 
