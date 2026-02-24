@@ -1,0 +1,27 @@
+# .gitignore
+
+# Environnements virtuels
+venv/
+env/
+.env
+
+# Dossiers de résultats (Très important)
+outputs/
+*.pth
+*.pt
+
+# Fichiers Python compilés
+__pycache__/
+*.pyc
+*.pyo
+
+# Fichiers système (Mac/Windows)
+.DS_Store
+Thumbs.db
+
+# Fichiers IDE (VS Code, PyCharm)
+.vscode/
+.idea/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
