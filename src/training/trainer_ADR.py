@@ -537,7 +537,7 @@ def train_smart_time_marching(model, bounds):
     device = next(model.parameters()).device
     
     # FORCAGE : On pointe directement sur le dossier du supercalculateur pour forcer la reprise
-    load_dir = "/lustre/fswork/projects/rech/fdb/usv13rn/These_DeepONet_ADR/results/run_20260218-115306"
+    load_dir = "/lustre/fswork/projects/rech/fdb/usv13rn/These_DeepONet_ADR/results/run_20260217-153828"
     
     # Writing folder
     save_dir = cfg['audit']['save_dir'] 
