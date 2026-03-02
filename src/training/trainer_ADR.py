@@ -338,7 +338,7 @@ def targeted_correction(model, bounds, t_max, initial_failed_ids, n_iters_base, 
         if i % 1000 == 0:
             if i > 0:
                 # Audit pour voir l'état actuel
-                current_failed_ids = diagnose_model(model, device, cfg, threshold=target_threshold, t_max=t_max, silent=True)
+                current_failed_ids = diagnose_model(model, device, cfg, threshold=target_threshold, t_max=t_max, silent=True) # 
                 
                 # Mise à jour du LR
                 current_lr = max(end_lr, current_lr * gamma)
