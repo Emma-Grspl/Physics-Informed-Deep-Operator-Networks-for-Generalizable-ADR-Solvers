@@ -41,6 +41,17 @@ The model is benchmarked against a Crank-Nicolson (CN) finite difference solver.
 | --- | --- | --- | --- |
 | **Mean L2 Error** | ~0.3% | ~2.9% | ~1.4% |
 
+## Computational Efficiency: The Time-Jumping Advantage
+Unlike classical finite difference solvers that must sequentially compute all intermediate time steps to reach a future state, the PI-DeepONet provides a continuous analytical solution. This allows the model to jump directly to the target time (t = 3.0) and process multiple scenarios in parallel on the GPU.
+
+When evaluating the time required to predict the final state for 50 different physical scenarios:
+
+- Crank-Nicolson (Sequential time-stepping): 0.726 s
+
+- PI-DeepONet (Batched direct time-jumping): 0.034 s
+
+Speedup: 21x Faster
+
 ## Getting Started
 
 ### Prerequisites
