@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from typing import Dict, List, Optional, Tuple
+
 import jax
 import jax.numpy as jnp
 
 
-def get_ic_value(x: jnp.ndarray, ic_params: dict[str, jnp.ndarray]) -> jnp.ndarray:
+def get_ic_value(x: jnp.ndarray, ic_params: Dict[str, jnp.ndarray]) -> jnp.ndarray:
     types = ic_params["type"]
     amplitude = ic_params["A"]
     x0 = ic_params["x0"]
@@ -23,19 +25,19 @@ def get_ic_value(x: jnp.ndarray, ic_params: dict[str, jnp.ndarray]) -> jnp.ndarr
     return is_tanh * tanh_part + is_sin * sin_gauss + is_gauss * gaussian
 
 
-def _sample_uniform(key: jax.Array, bounds: tuple[float, float], shape: tuple[int, ...]) -> jnp.ndarray:
+def _sample_uniform(key, bounds: Tuple[float, float], shape: Tuple[int, ...]) -> jnp.ndarray:
     return jax.random.uniform(key, shape=shape, minval=bounds[0], maxval=bounds[1])
 
 
 def generate_mixed_batch(
-    key: jax.Array,
+    key,
     n_samples: int,
-    bounds_phy: dict,
+    bounds_phy: Dict,
     x_min: float,
     x_max: float,
     t_max: float,
-    allowed_types: list[int] | None = None,
-) -> tuple[jnp.ndarray, ...]:
+    allowed_types: Optional[List[int]] = None,
+) -> Tuple[jnp.ndarray, ...]:
     keys = jax.random.split(key, 12)
 
     v = _sample_uniform(keys[0], tuple(bounds_phy["v"]), (n_samples, 1))

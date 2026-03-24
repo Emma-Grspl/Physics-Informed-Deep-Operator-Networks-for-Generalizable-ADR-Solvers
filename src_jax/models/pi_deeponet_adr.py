@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from typing import Dict, List
+
 import jax
 import jax.numpy as jnp
 
 
-def init_linear_params(key: jax.Array, in_dim: int, out_dim: int, scale: float = 1.0) -> dict[str, jnp.ndarray]:
+def init_linear_params(key, in_dim: int, out_dim: int, scale: float = 1.0) -> Dict[str, jnp.ndarray]:
     w_key, b_key = jax.random.split(key)
     limit = jnp.sqrt(2.0 / (in_dim + out_dim))
     weight = jax.random.normal(w_key, (in_dim, out_dim)) * limit * scale
@@ -12,23 +14,23 @@ def init_linear_params(key: jax.Array, in_dim: int, out_dim: int, scale: float =
     return {"weight": weight, "bias": bias}
 
 
-def linear(params: dict[str, jnp.ndarray], x: jnp.ndarray) -> jnp.ndarray:
+def linear(params: Dict[str, jnp.ndarray], x: jnp.ndarray) -> jnp.ndarray:
     return x @ params["weight"] + params["bias"]
 
 
-def init_mlp_params(key: jax.Array, dims: list[int]) -> list[dict[str, jnp.ndarray]]:
+def init_mlp_params(key, dims: List[int]) -> List[Dict[str, jnp.ndarray]]:
     keys = jax.random.split(key, len(dims) - 1)
     return [init_linear_params(k, dims[i], dims[i + 1]) for i, k in enumerate(keys)]
 
 
-def apply_mlp(params: list[dict[str, jnp.ndarray]], x: jnp.ndarray, activation=jax.nn.silu) -> jnp.ndarray:
+def apply_mlp(params: List[Dict[str, jnp.ndarray]], x: jnp.ndarray, activation=jax.nn.silu) -> jnp.ndarray:
     h = x
     for layer in params[:-1]:
         h = activation(linear(layer, h))
     return linear(params[-1], h)
 
 
-def init_model_params(key: jax.Array, cfg: dict) -> dict:
+def init_model_params(key, cfg: Dict) -> Dict:
     m_cfg = cfg["model"]
     g_cfg = cfg["geometry"]
     p_cfg = cfg["physics_ranges"]

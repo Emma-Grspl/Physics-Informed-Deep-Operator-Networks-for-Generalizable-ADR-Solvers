@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+from typing import Dict
+
 import jax
 import jax.numpy as jnp
 
 from src_jax.models.pi_deeponet_adr import apply_model
 
 
-def _scalar_prediction(params: dict, p_row: jnp.ndarray, xt_row: jnp.ndarray) -> jnp.ndarray:
+def _scalar_prediction(params: Dict, p_row: jnp.ndarray, xt_row: jnp.ndarray) -> jnp.ndarray:
     return apply_model(params, p_row[None, :], xt_row[None, :])[0, 0]
 
 
-def pde_residual_adr(params: dict, batch_params: jnp.ndarray, xt: jnp.ndarray) -> jnp.ndarray:
+def pde_residual_adr(params: Dict, batch_params: jnp.ndarray, xt: jnp.ndarray) -> jnp.ndarray:
     grad_fn = jax.grad(_scalar_prediction, argnums=2)
     hess_fn = jax.hessian(_scalar_prediction, argnums=2)
 

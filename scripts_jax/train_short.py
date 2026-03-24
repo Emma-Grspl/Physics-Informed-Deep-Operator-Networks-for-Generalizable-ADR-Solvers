@@ -5,6 +5,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import Dict, List
 
 import jax
 import jax.numpy as jnp
@@ -65,7 +66,7 @@ def main() -> None:
     print(f"batch_size={args.batch_size}")
     print(f"log_every={args.log_every}")
 
-    metrics: list[dict[str, float]] = []
+    metrics: List[Dict[str, float]] = []
     compile_time = None
     train_start = time.perf_counter()
     window_start = train_start

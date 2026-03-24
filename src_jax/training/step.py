@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Dict, Tuple
+
 import jax
 import jax.numpy as jnp
 import optax
@@ -7,7 +9,7 @@ import optax
 from src_jax.physics.residual_adr import pde_residual_adr
 
 
-def get_loss(params: dict, batch: tuple[jnp.ndarray, ...], wr: float, wi: float, wb: float) -> jnp.ndarray:
+def get_loss(params: Dict, batch: Tuple[jnp.ndarray, ...], wr: float, wi: float, wb: float) -> jnp.ndarray:
     batch_params, xt, xt_ic, u_true_ic, xt_bc_l, xt_bc_r, u_true_bc_l, u_true_bc_r = batch
 
     from src_jax.models.pi_deeponet_adr import apply_model
@@ -22,13 +24,13 @@ def get_loss(params: dict, batch: tuple[jnp.ndarray, ...], wr: float, wi: float,
 def make_train_step(optimizer: optax.GradientTransformation):
     @jax.jit
     def train_step(
-        params: dict,
+        params: Dict,
         opt_state: optax.OptState,
-        batch: tuple[jnp.ndarray, ...],
+        batch: Tuple[jnp.ndarray, ...],
         wr: float,
         wi: float,
         wb: float,
-    ) -> tuple[dict, optax.OptState, jnp.ndarray]:
+    ) -> Tuple[Dict, optax.OptState, jnp.ndarray]:
         loss_fn = lambda current_params: get_loss(current_params, batch, wr, wi, wb)
         loss, grads = jax.value_and_grad(loss_fn)(params)
         updates, next_opt_state = optimizer.update(grads, opt_state, params)
