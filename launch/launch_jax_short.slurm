@@ -16,6 +16,7 @@ set -euo pipefail
 
 module purge
 module load pytorch-gpu/py3/2.1.1
+source /lustre/fswork/projects/rech/fdb/usv13rn/venvs/jax_adr/bin/activate
 
 mkdir -p slurm/log
 
@@ -26,10 +27,6 @@ nvidia-smi
 python -c "import jax; print('jax_devices=', jax.devices())"
 python -c "import jax; print('jax_backend=', jax.default_backend())"
 python -c "import jaxlib; print('jaxlib_version=', jaxlib.__version__)"
-
-# If your JAX environment lives in a dedicated virtualenv on Jean Zay,
-# uncomment and adapt the next line instead of relying only on the module.
-# source /path/to/your/jax-env/bin/activate
 
 export PYTHONUNBUFFERED=1
 
