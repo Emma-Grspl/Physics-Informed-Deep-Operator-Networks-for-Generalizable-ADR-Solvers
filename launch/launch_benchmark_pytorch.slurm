@@ -28,10 +28,10 @@ python -c "import torch; print('torch_device_count=', torch.cuda.device_count())
 export PYTHONUNBUFFERED=1
 
 srun python -u benchmarks/pytorch/train_short_benchmark.py \
-  --benchmark-config benchmarks/configs/benchmark_t1.yaml
+  --benchmark-config benchmarks/configs/benchmark_t1_5k.yaml
 
 srun python -u benchmarks/pytorch/eval_benchmark.py \
-  --benchmark-config benchmarks/configs/benchmark_t1.yaml
+  --benchmark-config benchmarks/configs/benchmark_t1_5k.yaml
 
 srun python -u benchmarks/pytorch/inference_benchmark.py \
-  --benchmark-config benchmarks/configs/benchmark_t1.yaml
+  --benchmark-config benchmarks/configs/benchmark_t1_5k.yaml

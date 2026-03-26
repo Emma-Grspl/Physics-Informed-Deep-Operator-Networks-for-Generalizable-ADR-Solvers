@@ -30,10 +30,10 @@ python -c "import jaxlib; print('jaxlib_version=', jaxlib.__version__)"
 export PYTHONUNBUFFERED=1
 
 srun python -u benchmarks/jax/train_short_benchmark.py \
-  --benchmark-config benchmarks/configs/benchmark_t1.yaml
+  --benchmark-config benchmarks/configs/benchmark_t1_5k.yaml
 
 srun python -u benchmarks/jax/eval_benchmark.py \
-  --benchmark-config benchmarks/configs/benchmark_t1.yaml
+  --benchmark-config benchmarks/configs/benchmark_t1_5k.yaml
 
 srun python -u benchmarks/jax/inference_benchmark.py \
-  --benchmark-config benchmarks/configs/benchmark_t1.yaml
+  --benchmark-config benchmarks/configs/benchmark_t1_5k.yaml
