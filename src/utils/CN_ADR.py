@@ -13,7 +13,39 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(file_path)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-from src.data.generators import get_validation_data_adr
+
+def get_ic_value_numpy(x, ic_params):
+    x = np.asarray(x)
+    types = ic_params.get("type")
+    A = ic_params.get("A", 1.0)
+    x0 = ic_params.get("x0", 0.0)
+    sigma = ic_params.get("sigma", 0.5)
+    k = ic_params.get("k", 2.0)
+
+    u0 = np.zeros_like(x, dtype=float)
+
+    if types == 0:
+        u0 += np.tanh((x - x0) / (sigma + 1e-8))
+    elif types in [1, 2]:
+        u0 += A * np.exp(-((x - x0) ** 2) / (2 * sigma**2 + 1e-8)) * np.sin(k * x)
+    elif types in [3, 4]:
+        u0 += A * np.exp(-((x - x0) ** 2) / (2 * sigma**2 + 1e-8))
+
+    return u0
+
+
+def get_validation_data_adr_numpy(N0, Nb, ic_kwargs, xL, xR, Tmax):
+    x0_np = np.linspace(xL, xR, N0)
+    t_b_np = np.linspace(0, Tmax, Nb)
+    u0_np = get_ic_value_numpy(x0_np, ic_kwargs)
+
+    return {
+        "x0": x0_np,
+        "u0": u0_np,
+        "t_b": t_b_np,
+        "xL": xL,
+        "xR": xR,
+    }
 
 #Crank Nicolson
 def crank_nicolson_adr(v, D, mu, xL, xR, Nx, Tmax, Nt, bc_kind, x0=None, u0=None):
@@ -115,13 +147,15 @@ def get_ground_truth_CN(params_dict, full_cfg, t_step_max=None):
     equation_type = int(params_dict.get('type', 0))
     selected_bc = "tanh_pm1" if equation_type == 0 else "zero_zero"
 
-    # 3. IC (get_validation_data_adr doit aussi être nettoyé de Config)
+    # 3. IC
     ic_kwargs = params_dict.copy()
-    val_data = get_validation_data_adr(
-        N0=Nx, Nb=Nt, 
-        ic_kind="mixed", bc_kind="periodic", 
-        ic_kwargs=ic_kwargs, 
-        xL=x_min, xR=x_max, Tmax=T_max
+    val_data = get_validation_data_adr_numpy(
+        N0=Nx,
+        Nb=Nt,
+        ic_kwargs=ic_kwargs,
+        xL=x_min,
+        xR=x_max,
+        Tmax=T_max,
     )
 
     # 4. Solver
