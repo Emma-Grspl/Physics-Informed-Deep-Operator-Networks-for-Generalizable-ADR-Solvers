@@ -486,10 +486,10 @@ def train_smart_time_marching(params, cfg: Dict, bounds: Dict):
         print("Warmup ({0} iters)".format(n_warmup))
         warmup_lr = cfg["training"].get("warmup_learning_rate", cfg["training"]["learning_rate"])
         warmup_batch_size = cfg["training"].get("warmup_batch_size", cfg["training"]["batch_size"])
-        holdout_every = cfg["training"].get("warmup_holdout_every", 1000)
+        holdout_every = cfg["training"].get("warmup_holdout_every", 0)
         holdout_batch_size = cfg["training"].get("warmup_holdout_n", 2048)
-        warmup_audit_every = cfg["training"].get("warmup_audit_every", 1000)
-        warmup_allowed_types = cfg["training"].get("warmup_allowed_types", _balanced_warmup_types())
+        warmup_audit_every = cfg["training"].get("warmup_audit_every", 0)
+        warmup_allowed_types = cfg["training"].get("warmup_allowed_types")
 
         optimizer = optax.adam(warmup_lr)
         opt_state = optimizer.init(params)
@@ -530,7 +530,7 @@ def train_smart_time_marching(params, cfg: Dict, bounds: Dict):
                     best_warmup_params = clone_params(params)
                     print("[Warmup Audit] New best strict IC audit: {0:.2%}".format(best_warmup_err))
 
-        if best_warmup_err < float("inf"):
+        if warmup_audit_every > 0 and best_warmup_err < float("inf"):
             params = clone_params(best_warmup_params)
             print("Warmup best checkpoint selected from strict audit: {0:.2%}".format(best_warmup_err))
         else:
