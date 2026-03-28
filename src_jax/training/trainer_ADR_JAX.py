@@ -162,6 +162,25 @@ def _true_ic(params_dict: Dict, x: np.ndarray) -> np.ndarray:
     return np.asarray(get_ic_value(jnp.asarray(x, dtype=jnp.float32), ic_params)).reshape(-1)
 
 
+def _ic_holdout_metrics(params, cfg: Dict, bounds: Dict, batch_size: int, key) -> Tuple[float, float]:
+    batch = generate_mixed_batch(
+        key,
+        batch_size,
+        bounds,
+        cfg["geometry"]["x_min"],
+        cfg["geometry"]["x_max"],
+        0.0,
+    )
+    held_mse = float(jax.device_get(get_ic_loss(params, batch)))
+    params_batch, _, xt_ic, u_true_ic, _, _, _, _ = batch
+    pred = apply_model(params, params_batch, xt_ic)
+    rel_l2 = float(
+        np.linalg.norm(np.asarray(jax.device_get(pred - u_true_ic)))
+        / (np.linalg.norm(np.asarray(jax.device_get(u_true_ic))) + 1e-8)
+    )
+    return held_mse, rel_l2
+
+
 def audit_global_fast(params, cfg: Dict, t_max: float) -> Tuple[bool, float]:
     rng = np.random.default_rng(42)
     errors = []
@@ -440,16 +459,22 @@ def train_smart_time_marching(params, cfg: Dict, bounds: Dict):
     n_warmup = cfg["training"].get("n_warmup", 0)
     if n_warmup > 0:
         print("Warmup ({0} iters)".format(n_warmup))
-        optimizer = optax.adam(cfg["training"]["learning_rate"])
+        warmup_lr = cfg["training"].get("warmup_learning_rate", cfg["training"]["learning_rate"])
+        warmup_batch_size = cfg["training"].get("warmup_batch_size", cfg["training"]["batch_size"])
+        holdout_every = cfg["training"].get("warmup_holdout_every", 1000)
+        holdout_batch_size = cfg["training"].get("warmup_holdout_n", 2048)
+
+        optimizer = optax.adam(warmup_lr)
         opt_state = optimizer.init(params)
         train_step = make_ic_train_step(optimizer)
         king = KingOfTheHill(params)
         key = jax.random.PRNGKey(11)
+        holdout_key = jax.random.PRNGKey(111)
         for i in range(n_warmup):
             key, batch_key = jax.random.split(key)
             batch = generate_mixed_batch(
                 batch_key,
-                cfg["training"]["batch_size"],
+                warmup_batch_size,
                 bounds,
                 cfg["geometry"]["x_min"],
                 cfg["geometry"]["x_max"],
@@ -460,6 +485,14 @@ def train_smart_time_marching(params, cfg: Dict, bounds: Dict):
             king.update(params, loss_value)
             if (i + 1) % 1000 == 0:
                 print("[Warmup] Iter {0} | Loss: {1:.2e}".format(i + 1, loss_value))
+            if holdout_every > 0 and (i + 1) % holdout_every == 0:
+                holdout_key, batch_key = jax.random.split(holdout_key)
+                held_mse, held_rel_l2 = _ic_holdout_metrics(params, cfg, bounds, holdout_batch_size, batch_key)
+                print(
+                    "[Warmup Holdout] Iter {0} | MSE: {1:.2e} | RelL2: {2:.2%}".format(
+                        i + 1, held_mse, held_rel_l2
+                    )
+                )
 
         params = clone_params(king.best_state)
         audit_global_fast(params, cfg, 0.0)
