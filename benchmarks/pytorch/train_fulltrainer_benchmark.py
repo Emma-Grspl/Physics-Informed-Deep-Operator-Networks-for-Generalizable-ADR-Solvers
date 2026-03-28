@@ -13,7 +13,7 @@ if PROJECT_ROOT not in sys.path:
 
 from benchmarks.common.config import build_run_dir, load_yaml
 from benchmarks.common.io import ensure_dir, save_json
-import src.training.trainer_ADR as trainer_module
+import src.training.trainer_ADR_benchmark as trainer_module
 from src.models.PI_DeepOnet_ADR import PI_DeepONet_ADR
 
 
