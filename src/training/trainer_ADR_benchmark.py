@@ -266,6 +266,9 @@ def get_t_failed(model, cfg, threshold=0.04):
     device = next(model.parameters()).device
     model.eval()
     t_evals = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+    allowed_types = [tid for tid in get_allowed_types() if tid in [0, 1, 3]]
+    if not allowed_types:
+        allowed_types = get_allowed_types()
     
     for t_val in t_evals:
         errors = []
