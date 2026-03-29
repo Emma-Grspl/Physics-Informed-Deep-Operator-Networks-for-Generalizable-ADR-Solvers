@@ -72,6 +72,7 @@ class PI_DeepONet_ADR(nn.Module):
         latent_dim = m_cfg['latent_dim']
         num_fourier = m_cfg['nFourier']
         scales_fourier = m_cfg['sFourier']
+        self.use_ic_ansatz = bool(m_cfg.get('use_ic_ansatz', False))
 
         # Normalization buffers
         self.register_buffer('lb_geom', torch.tensor([g_cfg['x_min'], 0.0], dtype=torch.float32))
@@ -117,6 +118,23 @@ class PI_DeepONet_ADR(nn.Module):
         
         with torch.no_grad(): 
             self.final_layer.weight.mul_(0.01)
+
+    def _compute_ic_from_params(self, params, x):
+        p_type = params[:, 3:4]
+        p_A = params[:, 4:5]
+        p_x0 = params[:, 5:6]
+        p_sigma = params[:, 6:7]
+        p_k = params[:, 7:8]
+
+        tanh_part = torch.tanh((x - p_x0) / (p_sigma + 1e-8))
+        gauss_env = torch.exp(-((x - p_x0) ** 2) / (2 * p_sigma**2 + 1e-8))
+        sin_gauss = p_A * gauss_env * torch.sin(p_k * x)
+        gaussian = p_A * gauss_env
+
+        is_tanh = (p_type == 0).to(x.dtype)
+        is_sin = ((p_type == 1) | (p_type == 2)).to(x.dtype)
+        is_gauss = ((p_type == 3) | (p_type == 4)).to(x.dtype)
+        return is_tanh * tanh_part + is_sin * sin_gauss + is_gauss * gaussian
 
     def _build_branch_net(self, in_dim, out_dim, hidden_list):
         """
@@ -192,5 +210,12 @@ class PI_DeepONet_ADR(nn.Module):
             UV = layer_B(context_B)
             U, V = torch.split(UV, Z.shape[1], dim=1)
             Z = self.activation((1 - Z_trunk) * U + Z_trunk * V)
+        raw_out = self.final_layer(Z)
+        if not self.use_ic_ansatz:
+            return raw_out
 
-        return self.final_layer(Z)
+        x = xt[:, 0:1]
+        t = xt[:, 1:2]
+        u0 = self._compute_ic_from_params(params, x)
+        gate = 1.0 - torch.exp(-t)
+        return u0 + gate * raw_out

@@ -146,11 +146,13 @@ of different tasks and prevent the IC or the PDE from dominating learning.
     
     loss_pde = torch.mean(pde_residual_adr(model, params, xt)**2)
     grad_pde = torch.autograd.grad(loss_pde, trainable_params, retain_graph=True, create_graph=False, allow_unused=True)
-    norm_pde = torch.sqrt(sum(g.pow(2).sum() for g in grad_pde if g is not None))
+    pde_terms = [g.pow(2).sum() for g in grad_pde if g is not None]
+    norm_pde = torch.sqrt(torch.stack(pde_terms).sum()) if pde_terms else torch.tensor(0.0, device=params.device)
 
     loss_ic = torch.mean((model(params, xt_ic) - u_true_ic)**2)
     grad_ic = torch.autograd.grad(loss_ic, trainable_params, retain_graph=True, create_graph=False, allow_unused=True)
-    norm_ic = torch.sqrt(sum(g.pow(2).sum() for g in grad_ic if g is not None))
+    ic_terms = [g.pow(2).sum() for g in grad_ic if g is not None]
+    norm_ic = torch.sqrt(torch.stack(ic_terms).sum()) if ic_terms else torch.tensor(0.0, device=params.device)
 
     new_w_pde = (norm_ic / (norm_pde + 1e-8)).item() * w_ic_ref
     return min(max(new_w_pde, 10.0), 500.0)
@@ -172,11 +174,17 @@ def monitor_gradients(model, batch):
 
         lp = torch.mean(pde_residual_adr(model, params, xt)**2)
         gp = torch.autograd.grad(lp, trainable_params, retain_graph=True, allow_unused=True)
-        fp = torch.cat([g.view(-1) for g in gp if g is not None])
+        fp_terms = [g.view(-1) for g in gp if g is not None]
+        if not fp_terms:
+            return 0.0, 0.0
+        fp = torch.cat(fp_terms)
         
         li = torch.mean((model(params, xt_ic) - u_true_ic)**2)
         gi = torch.autograd.grad(li, trainable_params, retain_graph=True, allow_unused=True)
-        fi = torch.cat([g.view(-1) for g in gi if g is not None])
+        fi_terms = [g.view(-1) for g in gi if g is not None]
+        if not fi_terms:
+            return 0.0, 0.0
+        fi = torch.cat(fi_terms)
 
         ratio = (torch.norm(fi) / (torch.norm(fp) + 1e-8)).item()
         cos_sim = torch.nn.functional.cosine_similarity(fp, fi, dim=0).item()

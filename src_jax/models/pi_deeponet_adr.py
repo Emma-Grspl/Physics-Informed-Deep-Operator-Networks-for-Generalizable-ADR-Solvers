@@ -83,6 +83,7 @@ def init_model_params(key, cfg: Dict) -> Dict:
             "sigma_scale": jnp.array(max(abs(p_cfg["sigma"][0]), abs(p_cfg["sigma"][1])), dtype=jnp.float32),
             "k_scale": jnp.array(max(abs(p_cfg["k"][0]), abs(p_cfg["k"][1])), dtype=jnp.float32),
         },
+        "use_ic_ansatz": bool(m_cfg.get("use_ic_ansatz", False)),
     }
 
 
@@ -118,5 +119,25 @@ def apply_model(params: dict, inputs_params: jnp.ndarray, xt: jnp.ndarray) -> jn
         uv = linear(branch_transform, context_b)
         u_val, v_val = jnp.split(uv, 2, axis=1)
         z_val = jax.nn.silu((1.0 - z_trunk) * u_val + z_trunk * v_val)
+    raw_out = linear(params["final_layer"], z_val)
+    if not params.get("use_ic_ansatz", False):
+        return raw_out
 
-    return linear(params["final_layer"], z_val)
+    x = xt[:, 0:1]
+    t = xt[:, 1:2]
+    p_type = inputs_params[:, 3:4]
+    p_a = inputs_params[:, 4:5]
+    p_x0 = inputs_params[:, 5:6]
+    p_sigma = inputs_params[:, 6:7]
+    p_k = inputs_params[:, 7:8]
+
+    tanh_part = jnp.tanh((x - p_x0) / (p_sigma + 1e-8))
+    gauss_env = jnp.exp(-((x - p_x0) ** 2) / (2.0 * p_sigma**2 + 1e-8))
+    sin_gauss = p_a * gauss_env * jnp.sin(p_k * x)
+    gaussian = p_a * gauss_env
+    is_tanh = (p_type == 0).astype(x.dtype)
+    is_sin = jnp.isin(p_type, jnp.array([1, 2], dtype=p_type.dtype)).astype(x.dtype)
+    is_gauss = jnp.isin(p_type, jnp.array([3, 4], dtype=p_type.dtype)).astype(x.dtype)
+    u0 = is_tanh * tanh_part + is_sin * sin_gauss + is_gauss * gaussian
+    gate = 1.0 - jnp.exp(-t)
+    return u0 + gate * raw_out
