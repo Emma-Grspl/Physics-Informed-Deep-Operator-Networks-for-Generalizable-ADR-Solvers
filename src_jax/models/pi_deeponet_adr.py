@@ -120,8 +120,7 @@ def apply_model(params: dict, inputs_params: jnp.ndarray, xt: jnp.ndarray) -> jn
         u_val, v_val = jnp.split(uv, 2, axis=1)
         z_val = jax.nn.silu((1.0 - z_trunk) * u_val + z_trunk * v_val)
     raw_out = linear(params["final_layer"], z_val)
-    if float(params.get("use_ic_ansatz", jnp.array(0.0, dtype=jnp.float32))) < 0.5:
-        return raw_out
+    ansatz_flag = jnp.asarray(params.get("use_ic_ansatz", jnp.array(0.0, dtype=jnp.float32)), dtype=raw_out.dtype)
 
     x = xt[:, 0:1]
     t = xt[:, 1:2]
@@ -140,4 +139,5 @@ def apply_model(params: dict, inputs_params: jnp.ndarray, xt: jnp.ndarray) -> jn
     is_gauss = jnp.isin(p_type, jnp.array([3, 4], dtype=p_type.dtype)).astype(x.dtype)
     u0 = is_tanh * tanh_part + is_sin * sin_gauss + is_gauss * gaussian
     gate = 1.0 - jnp.exp(-t)
-    return u0 + gate * raw_out
+    ansatz_out = u0 + gate * raw_out
+    return raw_out + ansatz_flag * (ansatz_out - raw_out)
