@@ -344,7 +344,7 @@ def plot_snapshots() -> None:
         ("Gaussian", {"type": 3, "v": 0.8, "D": 0.1, "mu": 0.5, "A": 1.0, "sigma": 0.5, "k": 2.0}),
     ]
 
-    fig, axes = plt.subplots(len(cases), 1, figsize=(12.5, 13), sharex=True, constrained_layout=True)
+    fig, axes = plt.subplots(len(cases), 1, figsize=(12.5, 14.2), sharex=True)
     model_styles = {
         "CN": {"linestyle": "--", "linewidth": 2.6, "alpha": 0.98, "zorder": 6},
         "PyTorch": {"linestyle": "-", "linewidth": 1.9, "alpha": 0.92, "zorder": 3},
@@ -376,9 +376,27 @@ def plot_snapshots() -> None:
         Line2D([0], [0], color=color, linestyle="-", linewidth=3.0, label=f"t = {t[t_idx]:.2f}")
         for color, t_idx in zip(time_colors, t_indices)
     ]
-    model_legend = axes[-1].legend(handles=model_handles, loc="lower right", ncol=3, frameon=True, bbox_to_anchor=(0.965, 0.05))
-    axes[-1].add_artist(model_legend)
-    axes[-1].legend(handles=time_handles, loc="lower center", ncol=5, frameon=True, bbox_to_anchor=(0.48, 0.05))
+    fig.subplots_adjust(top=0.93, bottom=0.16, hspace=0.24)
+    fig.legend(
+        handles=model_handles,
+        loc="lower center",
+        ncol=3,
+        frameon=True,
+        bbox_to_anchor=(0.5, 0.065),
+        columnspacing=2.4,
+        handlelength=2.8,
+        title="Line style",
+    )
+    fig.legend(
+        handles=time_handles,
+        loc="lower center",
+        ncol=5,
+        frameon=True,
+        bbox_to_anchor=(0.5, 0.015),
+        columnspacing=1.8,
+        handlelength=2.8,
+        title="Snapshot times",
+    )
     fig.suptitle("Reference and Network Reconstructions for Five Time Snapshots", fontsize=15, fontweight="bold")
     savefig(fig, "6_snapshots_reconstruction.png")
 

@@ -336,7 +336,7 @@ def plot_snapshots(bundle: dict) -> None:
     t = np.linspace(0.0, 1.0, 200)
     t_indices = [0, len(t) // 8, len(t) // 4, len(t) // 2, -1]
 
-    fig, axes = plt.subplots(3, 1, figsize=(12.5, 13), sharex=True, constrained_layout=True)
+    fig, axes = plt.subplots(3, 1, figsize=(12.5, 14.2), sharex=True)
     model_styles = {
         "CN": {"linestyle": "--", "linewidth": 2.6, "alpha": 0.98, "zorder": 6},
         "PyTorch": {"linestyle": "-", "linewidth": 1.9, "alpha": 0.92, "zorder": 3},
@@ -373,9 +373,27 @@ def plot_snapshots(bundle: dict) -> None:
         Line2D([0], [0], color=color, linestyle="-", linewidth=3.0, label=f"t = {t[t_idx]:.2f}")
         for color, t_idx in zip(time_colors, t_indices)
     ]
-    model_legend = axes[-1].legend(handles=model_handles, loc="lower right", ncol=3, frameon=True, bbox_to_anchor=(0.98, 0.03))
-    axes[-1].add_artist(model_legend)
-    axes[-1].legend(handles=time_handles, loc="lower center", ncol=5, frameon=True, bbox_to_anchor=(0.5, 0.03))
+    fig.subplots_adjust(top=0.93, bottom=0.16, hspace=0.24)
+    fig.legend(
+        handles=model_handles,
+        loc="lower center",
+        ncol=3,
+        frameon=True,
+        bbox_to_anchor=(0.5, 0.065),
+        columnspacing=2.4,
+        handlelength=2.8,
+        title="Line style",
+    )
+    fig.legend(
+        handles=time_handles,
+        loc="lower center",
+        ncol=5,
+        frameon=True,
+        bbox_to_anchor=(0.5, 0.015),
+        columnspacing=1.8,
+        handlelength=2.8,
+        title="Snapshot times",
+    )
     fig.suptitle("Monofamily Reconstructions for Five Time Snapshots", fontsize=15, fontweight="bold")
     savefig(fig, "5_monofamily_snapshots.png")
 
