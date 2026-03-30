@@ -1,0 +1,8 @@
+jax[cuda12]>=0.4.30
+jaxlib>=0.4.30
+optax>=0.2.3
+numpy>=1.23.0
+scipy>=1.10.0
+matplotlib>=3.6.0
+pyyaml>=6.0
+tqdm>=4.64.0
