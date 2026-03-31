@@ -56,6 +56,41 @@ def tree_l2_norm(tree) -> jnp.ndarray:
     return jnp.sqrt(sum(jnp.sum(jnp.square(leaf)) for leaf in leaves if leaf is not None) + 1e-12)
 
 
+def _run_scipy_lbfgs_finisher(params, cfg: Dict, bounds: Dict, t_max: float, w_res: float, w_ic: float, w_bc: float, allowed_types: List[int]):
+    try:
+        from scipy.optimize import minimize
+    except Exception as exc:
+        raise RuntimeError("SciPy is required for the JAX LBFGS finisher.") from exc
+
+    key = jax.random.PRNGKey(int(t_max * 1000) + 777)
+    batch = generate_mixed_batch(
+        key,
+        cfg["training"]["n_sample"],
+        bounds,
+        cfg["geometry"]["x_min"],
+        cfg["geometry"]["x_max"],
+        t_max,
+        allowed_types=allowed_types,
+    )
+    flat_params, unravel_fn = jax.flatten_util.ravel_pytree(params)
+
+    def objective(flat_vector):
+        current_params = unravel_fn(jnp.asarray(flat_vector))
+        loss_value, grad_tree = jax.value_and_grad(get_loss)(current_params, batch, w_res, w_ic, w_bc)
+        flat_grad, _ = jax.flatten_util.ravel_pytree(grad_tree)
+        return float(jax.device_get(loss_value)), np.asarray(jax.device_get(flat_grad), dtype=np.float64)
+
+    result = minimize(
+        objective,
+        np.asarray(jax.device_get(flat_params), dtype=np.float64),
+        method="L-BFGS-B",
+        jac=True,
+        options={"maxiter": 500},
+    )
+    next_params = unravel_fn(jnp.asarray(result.x, dtype=flat_params.dtype))
+    return next_params, result
+
+
 def compute_ntk_weights(params, batch, w_ic_ref: float) -> float:
     def loss_pde(current_params):
         batch_params, xt, _, _, _, _, _, _ = batch
@@ -303,11 +338,9 @@ def diagnose_model(params, cfg: Dict, threshold: float | None = None, t_max: flo
 
 def get_t_failed(params, cfg: Dict, threshold: float = 0.04) -> float:
     print("Recherche du point de bascule temporel (t_failed)...")
-    t_evals = [0.0, 0.5, 1.0]
+    t_evals = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
     rng = np.random.default_rng(7)
-    allowed_types = [tid for tid in _allowed_types(cfg) if tid in [0, 1, 3]]
-    if not allowed_types:
-        allowed_types = _allowed_types(cfg)
+    allowed_types = _allowed_types(cfg)
     nx = cfg["audit"]["Nx_audit"]
     nt = cfg["audit"]["Nt_audit"]
     for t_val in t_evals:
@@ -349,7 +382,7 @@ def targeted_correction(params, cfg: Dict, bounds: Dict, t_max: float, initial_f
     if apply_80_20 and target_threshold is not None:
         t_failed = get_t_failed(params, cfg, threshold=target_threshold)
 
-    optimizer = optax.adam(current_lr)
+    optimizer = optax.scale_by_adam()
     opt_state = optimizer.init(params)
     train_step = make_train_step(optimizer)
     all_types = _allowed_types(cfg)
@@ -360,9 +393,6 @@ def targeted_correction(params, cfg: Dict, bounds: Dict, t_max: float, initial_f
             if i > 0:
                 current_failed_ids = diagnose_model(params, cfg, threshold=target_threshold, t_max=t_max)
                 current_lr = max(end_lr, current_lr * gamma)
-                optimizer = optax.adam(current_lr)
-                opt_state = optimizer.init(params)
-                train_step = make_train_step(optimizer)
                 if len(current_failed_ids) == 0:
                     print("Objectif atteint a l'iteration {0}".format(i))
                     return params, True
@@ -399,7 +429,7 @@ def targeted_correction(params, cfg: Dict, bounds: Dict, t_max: float, initial_f
         if t_max > 0.0 and i % 100 == 0:
             w_res_loc = compute_ntk_weights(params, batch, w_ic_loc)
 
-        params, opt_state, loss = train_step(params, opt_state, batch, w_res_loc, w_ic_loc, w_bc_loc)
+        params, opt_state, loss = train_step(params, opt_state, batch, w_res_loc, w_ic_loc, w_bc_loc, current_lr)
         loss_value = float(jax.device_get(loss))
         king_corr.update(params, loss_value)
         if i % 500 == 0:
@@ -431,13 +461,14 @@ def train_step_time_window(params, cfg: Dict, bounds: Dict, t_max: float, n_iter
     global_success = False
     key = jax.random.PRNGKey(int(t_max * 1000) + 17)
     allowed_types = _allowed_types(cfg)
+    use_lbfgs_finisher = bool(cfg.get("training", {}).get("use_lbfgs_finisher", True))
 
     for macro in range(cfg["training"]["nb_loop"]):
         print("Macro {0}/{1}".format(macro + 1, cfg["training"]["nb_loop"]))
 
         for retry in range(cfg["training"]["max_retry"]):
             params = clone_params(king.best_state)
-            optimizer = optax.adam(current_lr)
+            optimizer = optax.scale_by_adam()
             opt_state = optimizer.init(params)
             train_step = make_train_step(optimizer)
 
@@ -454,7 +485,7 @@ def train_step_time_window(params, cfg: Dict, bounds: Dict, t_max: float, n_iter
                 )
                 if mode == "NTK" and i % 100 == 0:
                     w_res = compute_ntk_weights(params, batch, w_ic)
-                params, opt_state, loss = train_step(params, opt_state, batch, w_res, w_ic, w_bc)
+                params, opt_state, loss = train_step(params, opt_state, batch, w_res, w_ic, w_bc, current_lr)
                 loss_value = float(jax.device_get(loss))
                 king.update(params, loss_value)
                 if i % 1000 == 0:
@@ -470,6 +501,30 @@ def train_step_time_window(params, cfg: Dict, bounds: Dict, t_max: float, n_iter
 
         if global_success:
             break
+
+        if not use_lbfgs_finisher:
+            print("LBFGS Finisher disabled by config.")
+            continue
+
+        print("LBFGS Finisher")
+        params = clone_params(king.best_state)
+        _, err_before = audit_global_fast(params, cfg, t_max)
+        try:
+            params_lbfgs, result = _run_scipy_lbfgs_finisher(params, cfg, bounds, t_max, w_res, w_ic, w_bc, allowed_types)
+            print("SciPy L-BFGS status: {0}".format(result.message))
+            success_lbfgs, err_after = audit_global_fast(params_lbfgs, cfg, t_max)
+            if err_after > err_before:
+                print("L-BFGS degraded. ROLLBACK.")
+                params = clone_params(king.best_state)
+            else:
+                params = params_lbfgs
+                king.best_state = clone_params(params_lbfgs)
+                if success_lbfgs:
+                    print("Global success (LBFGS)")
+                    global_success = True
+                    break
+        except Exception as exc:
+            print("LBFGS finisher failed: {0}".format(exc))
 
     if not global_success:
         print("Global failure")
@@ -506,58 +561,31 @@ def train_smart_time_marching(params, cfg: Dict, bounds: Dict):
     n_warmup = cfg["training"].get("n_warmup", 0)
     if n_warmup > 0:
         print("Warmup ({0} iters)".format(n_warmup))
-        warmup_lr = cfg["training"].get("warmup_learning_rate", cfg["training"]["learning_rate"])
-        warmup_batch_size = cfg["training"].get("warmup_batch_size", cfg["training"]["batch_size"])
-        holdout_every = cfg["training"].get("warmup_holdout_every", 0)
-        holdout_batch_size = cfg["training"].get("warmup_holdout_n", 2048)
-        warmup_audit_every = cfg["training"].get("warmup_audit_every", 0)
-        warmup_allowed_types = cfg["training"].get("warmup_allowed_types", _allowed_types(cfg))
-
-        optimizer = optax.adam(warmup_lr)
+        optimizer = optax.scale_by_adam()
         opt_state = optimizer.init(params)
         train_step = make_ic_train_step(optimizer)
         king = KingOfTheHill(params)
-        best_warmup_params = clone_params(params)
-        best_warmup_err = float("inf")
         key = jax.random.PRNGKey(11)
-        holdout_key = jax.random.PRNGKey(111)
+        warmup_allowed_types = cfg["training"].get("warmup_allowed_types", _allowed_types(cfg))
         for i in range(n_warmup):
             key, batch_key = jax.random.split(key)
             batch = generate_mixed_batch(
                 batch_key,
-                warmup_batch_size,
+                cfg["training"]["batch_size"],
                 bounds,
                 cfg["geometry"]["x_min"],
                 cfg["geometry"]["x_max"],
                 0.0,
                 allowed_types=warmup_allowed_types,
             )
-            params, opt_state, loss = train_step(params, opt_state, batch)
+            params, opt_state, loss = train_step(params, opt_state, batch, cfg["training"]["learning_rate"])
             loss_value = float(jax.device_get(loss))
             king.update(params, loss_value)
             if (i + 1) % 1000 == 0:
                 print("[Warmup] Iter {0} | Loss: {1:.2e}".format(i + 1, loss_value))
-            if holdout_every > 0 and (i + 1) % holdout_every == 0:
-                holdout_key, batch_key = jax.random.split(holdout_key)
-                held_mse, held_rel_l2 = _ic_holdout_metrics(params, cfg, bounds, holdout_batch_size, batch_key)
-                print(
-                    "[Warmup Holdout] Iter {0} | MSE: {1:.2e} | RelL2: {2:.2%}".format(
-                        i + 1, held_mse, held_rel_l2
-                    )
-                )
-            if warmup_audit_every > 0 and (i + 1) % warmup_audit_every == 0:
-                _, warmup_err = audit_global_fast(params, cfg, 0.0)
-                if warmup_err < best_warmup_err:
-                    best_warmup_err = warmup_err
-                    best_warmup_params = clone_params(params)
-                    print("[Warmup Audit] New best strict IC audit: {0:.2%}".format(best_warmup_err))
+        params = clone_params(king.best_state)
 
-        if warmup_audit_every > 0 and best_warmup_err < float("inf"):
-            params = clone_params(best_warmup_params)
-            print("Warmup best checkpoint selected from strict audit: {0:.2%}".format(best_warmup_err))
-        else:
-            params = clone_params(king.best_state)
-
+        print("Audit Warmup Global")
         audit_global_fast(params, cfg, 0.0)
         failed_warmup = diagnose_model(params, cfg, t_max=0.0)
         if failed_warmup:
@@ -568,7 +596,7 @@ def train_smart_time_marching(params, cfg: Dict, bounds: Dict):
                 bounds,
                 0.0,
                 failed_warmup,
-                min(5000, cfg["training"]["n_iters_correction"]),
+                5000,
                 start_lr=cfg["training"]["learning_rate"],
             )
             if not success:

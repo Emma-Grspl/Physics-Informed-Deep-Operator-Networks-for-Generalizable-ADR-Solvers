@@ -20,7 +20,7 @@ from src_jax.training.trainer_ADR_JAX import train_smart_time_marching
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--benchmark-config", default=os.path.join(PROJECT_ROOT, "benchmarks", "configs", "benchmark_fulltrainer_t1.yaml"))
-    parser.add_argument("--model-config", default=os.path.join(PROJECT_ROOT, "configs_jax", "config_ADR_jax_t1_compare.yaml"))
+    parser.add_argument("--model-config", default=os.path.join(PROJECT_ROOT, "configs_jax", "config_ADR_jax_t1_equal_pipeline.yaml"))
     parser.add_argument("--seed", type=int, default=None)
     return parser.parse_args()
 

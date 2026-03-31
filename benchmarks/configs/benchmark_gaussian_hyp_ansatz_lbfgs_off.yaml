@@ -1,0 +1,22 @@
+name: "benchmark_gaussian_hyp_ansatz_lbfgs_off"
+seed: 0
+seeds: [0, 1, 2]
+
+training:
+  t_max: 1.0
+  batch_size: 10
+
+evaluation:
+  n_cases_per_family: 20
+  families:
+    Gaussian: [3, 4]
+
+inference:
+  batch_size: 10
+  nx: 400
+  nt: 200
+  warmup_iters: 3
+  allowed_types: [3, 4]
+
+outputs:
+  root_dir: "outputs/benchmarks"

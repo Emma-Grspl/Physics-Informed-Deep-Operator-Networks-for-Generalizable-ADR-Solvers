@@ -460,6 +460,7 @@ Executes the training over a given time window. Manages the PDE weight ramp init
     current_lr = cfg['training']['learning_rate']
     global_success = False
     allowed_types = get_allowed_types()
+    use_lbfgs_finisher = bool(cfg.get('training', {}).get('use_lbfgs_finisher', True))
 
     for macro in range(cfg['training']['nb_loop']):
         print(f"Lacro {macro+1}/{cfg['training']['nb_loop']}")
@@ -491,6 +492,10 @@ Executes the training over a given time window. Manages the PDE weight ramp init
             current_lr *= 0.5
         
         if global_success: break
+
+        if not use_lbfgs_finisher:
+            print("LBFGS Finisher disabled by config.")
+            continue
 
         print("LBFGS Finisher")
         model.load_state_dict(king.best_state)

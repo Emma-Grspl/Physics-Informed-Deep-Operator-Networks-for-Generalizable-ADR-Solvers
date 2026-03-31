@@ -2,7 +2,7 @@ audit:
   Nt_audit: 200
   Nx_audit: 400
   Nx_solver: 400
-  save_dir: "outputs/JAX/checkpoints_shared_t1_compare"
+  save_dir: "outputs/checkpoints_gaussian_hyp_free_lbfgs_on"
   n_global_cases: 40
   n_family_cases: 12
 
@@ -43,6 +43,9 @@ time_stepping:
       t_end: 1.00
 
 training:
+  allowed_types: [3, 4]
+  warmup_allowed_types: [3, 4]
+  use_lbfgs_finisher: true
   batch_size: 4096
   learning_rate: 6.078744921577277e-05
   max_retry: 2

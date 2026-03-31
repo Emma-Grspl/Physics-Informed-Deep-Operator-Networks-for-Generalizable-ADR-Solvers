@@ -2,7 +2,7 @@ audit:
   Nt_audit: 200
   Nx_audit: 400
   Nx_solver: 400
-  save_dir: "outputs/JAX/checkpoints_shared_t1_compare"
+  save_dir: "outputs/checkpoints_gaussian_hyp_ansatz_lbfgs_on"
   n_global_cases: 40
   n_family_cases: 12
 
@@ -14,10 +14,11 @@ geometry:
 loss_weights:
   first_w_res: 500.0
   weight_bc: 200.0
-  weight_ic_final: 100.0
-  weight_ic_init: 2000.0
+  weight_ic_final: 0.0
+  weight_ic_init: 0.0
 
 model:
+  use_ic_ansatz: true
   branch_depth: 5
   branch_width: 256
   latent_dim: 256
@@ -43,13 +44,16 @@ time_stepping:
       t_end: 1.00
 
 training:
+  allowed_types: [3, 4]
+  warmup_allowed_types: [3, 4]
+  use_lbfgs_finisher: true
   batch_size: 4096
   learning_rate: 6.078744921577277e-05
   max_retry: 2
   n_iters_correction: 4000
   n_iters_per_step: 2500
   n_sample: 4096
-  n_warmup: 5000
+  n_warmup: 0
   nb_loop: 1
   rolling_window: 2000
   threshold_ic: 0.02

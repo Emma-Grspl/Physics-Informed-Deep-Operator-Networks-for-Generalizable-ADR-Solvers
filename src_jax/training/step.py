@@ -38,10 +38,12 @@ def make_train_step(optimizer: optax.GradientTransformation):
         wr: float,
         wi: float,
         wb: float,
+        learning_rate: float,
     ) -> Tuple[Dict, optax.OptState, jnp.ndarray]:
         loss_fn = lambda current_params: get_loss(current_params, batch, wr, wi, wb)
         loss, grads = jax.value_and_grad(loss_fn)(params)
         updates, next_opt_state = optimizer.update(grads, opt_state, params)
+        updates = jax.tree_util.tree_map(lambda upd: -learning_rate * upd, updates)
         next_params = optax.apply_updates(params, updates)
         return next_params, next_opt_state, loss
 
@@ -54,9 +56,11 @@ def make_ic_train_step(optimizer: optax.GradientTransformation):
         params: Dict,
         opt_state: optax.OptState,
         batch: Tuple[jnp.ndarray, ...],
+        learning_rate: float,
     ) -> Tuple[Dict, optax.OptState, jnp.ndarray]:
         loss, grads = jax.value_and_grad(get_ic_loss)(params, batch)
         updates, next_opt_state = optimizer.update(grads, opt_state, params)
+        updates = jax.tree_util.tree_map(lambda upd: -learning_rate * upd, updates)
         next_params = optax.apply_updates(params, updates)
         return next_params, next_opt_state, loss
 
