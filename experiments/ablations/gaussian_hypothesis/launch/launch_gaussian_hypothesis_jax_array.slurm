@@ -42,13 +42,20 @@ else
 fi
 
 if [ -z "${VENV_ACTIVATE:-}" ]; then
-  echo "ERROR: JAX ADR virtualenv not found." >&2
-  echo "Set JAX_ADR_VENV=/path/to/venv or edit this launcher with the correct path." >&2
-  exit 1
+  echo "JAX ADR virtualenv not found. Falling back to module python." >&2
+else
+  echo "Using JAX venv: ${VENV_ACTIVATE}"
+  source "${VENV_ACTIVATE}"
 fi
 
-echo "Using JAX venv: ${VENV_ACTIVATE}"
-source "${VENV_ACTIVATE}"
+python - <<'PY'
+import importlib
+mods = ["jax", "optax", "scipy"]
+missing = [m for m in mods if importlib.util.find_spec(m) is None]
+if missing:
+    raise SystemExit(f"Missing Python packages: {missing}")
+print("Python environment OK for JAX benchmark.")
+PY
 
 mkdir -p slurm/log
 
