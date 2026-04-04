@@ -7,7 +7,7 @@ This repository contains two closely related but distinct tracks:
 1. `base/`: the canonical PyTorch implementation of the ADR PI-DeepONet.
 2. `jax_comparison/`: the experimental comparison layer used to compare PyTorch and JAX under controlled protocols.
 
-The repository is being cleaned so those two tracks are explicit instead of mixed implicitly through legacy top-level folders.
+Human-facing experiment protocols are organized under `experiments/`, which acts as the public experiment registry for reproducible runs and ablations.
 
 ## Intended Branching Model
 
@@ -27,7 +27,7 @@ Practical rule:
 
 - [base/](/Users/emma.grospellier/Thèse/Projet_These_ADR/base): canonical PyTorch ADR workflow
 - [jax_comparison/](/Users/emma.grospellier/Thèse/Projet_These_ADR/jax_comparison): comparison workspace layered on top of the base workflow
-- [experiments/](/Users/emma.grospellier/Thèse/Projet_These_ADR/experiments): experiment-oriented organization of configs and launchers
+- [experiments/](/Users/emma.grospellier/Thèse/Projet_These_ADR/experiments): official experiment registry for reproducible protocols, configs, and launchers
 - [benchmarks/](/Users/emma.grospellier/Thèse/Projet_These_ADR/benchmarks): benchmark helpers and shared benchmark configs
 - [plot/](/Users/emma.grospellier/Thèse/Projet_These_ADR/plot): generated figures and summaries
 - `results/`: runtime outputs used by analyses
@@ -68,7 +68,7 @@ Jean Zay example:
 - [jax_comparison/README.md](/Users/emma.grospellier/Thèse/Projet_These_ADR/jax_comparison/README.md): overall comparison workspace
 - [jax_comparison/multifamily/README.md](/Users/emma.grospellier/Thèse/Projet_These_ADR/jax_comparison/multifamily/README.md): strict full-task comparison
 - [jax_comparison/monofamily/README.md](/Users/emma.grospellier/Thèse/Projet_These_ADR/jax_comparison/monofamily/README.md): mono-family diagnostics and ablations
-- [experiments/README.md](/Users/emma.grospellier/Thèse/Projet_These_ADR/experiments/README.md): target organization for configs and launchers
+- [experiments/README.md](/Users/emma.grospellier/Thèse/Projet_These_ADR/experiments/README.md): official experiment registry and protocol layout
 
 ## Key Results Snapshot
 
@@ -79,6 +79,13 @@ The canonical PyTorch pipeline is the stable scientific baseline of the reposito
 - accurate operator learning on the ADR task
 - usable surrogate quality
 - substantial inference speedup relative to the classical Crank-Nicolson solver
+
+Reference multifamily benchmark (`benchmark_fulltrainer_t1`, 20 evaluation cases per family):
+
+- global relative L2: `0.00507 +- 0.00392`
+- Tanh family: `0.00139 +- 0.00035`
+- Sin-Gauss family: `0.00978 +- 0.00286`
+- Gaussian family: `0.00405 +- 0.00100`
 
 ### Strict multifamily PyTorch vs JAX comparison
 

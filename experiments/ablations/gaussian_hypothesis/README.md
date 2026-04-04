@@ -10,13 +10,13 @@ Contents:
 - `configs/pytorch/`: PyTorch model configs for the four variants
 - `configs/jax/`: JAX model configs for the four variants
 - `configs/benchmarks/`: benchmark configs used by both backends
-- `launch/`: array launchers for PyTorch and JAX
+- `launch/`: Jean Zay array launchers for PyTorch and JAX
 
-Current status:
+Package properties:
 
-- configs and launchers in this directory are now self-contained
-- launchers resolve benchmark/model configs from `experiments/ablations/gaussian_hypothesis/...`
-- existing root paths remain valid for compatibility
+- configs and launchers in this directory are self-contained
+- launchers resolve benchmark and model configs from `experiments/ablations/gaussian_hypothesis/...`
+- local or non-SLURM runs should reuse these configs and invoke the benchmark scripts manually
 
 Variants:
 

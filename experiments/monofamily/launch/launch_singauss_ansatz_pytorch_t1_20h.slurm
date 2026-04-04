@@ -1,4 +1,7 @@
 #!/bin/bash
+# Jean Zay SLURM launcher for this experiment package.
+# Adjust account, modules, constraints, and environment activation for other HPC systems.
+
 #SBATCH --job-name=ADR_PT_SG_ANSATZ
 #SBATCH --output=slurm/log/%x_%j.out
 #SBATCH --error=slurm/log/%x_%j.err

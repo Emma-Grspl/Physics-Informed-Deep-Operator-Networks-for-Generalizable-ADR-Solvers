@@ -1,13 +1,8 @@
 # Experiments
 
-This directory groups experiment definitions independently from the active source code.
+This directory is the public registry for reproducible experiment definitions.
 
-Rules:
-
-- source code stays in `src/` and `src_jax/` during the current transition
-- `experiments/` contains configs, launchers, and short protocol notes
-- new experiment setup should be added here first, not into duplicated legacy trees
-- results must still be written to `results/` or the configured benchmark output directory
+Each experiment package contains the configuration files, launchers, and short protocol notes required to reproduce a bounded study from the repository root. Source code remains in the main implementation trees, while `experiments/` defines how that code is exercised for a named protocol.
 
 Subdirectories:
 
@@ -16,4 +11,9 @@ Subdirectories:
 - `monofamily/`: mono-family comparison protocols
 - `ablations/`: bounded ablation studies such as ansatz/LBFGS sweeps
 
-This namespace is introduced in Stage 2 of the repository reorganization and is intentionally non-destructive.
+Conventions:
+
+- configs live inside the corresponding experiment package
+- benchmark scripts are invoked from the repository root
+- generated outputs should be written to `results/` or the configured benchmark output directory
+- `.slurm` launchers in this tree target Jean Zay specifically; they are not intended to be cluster-agnostic job scripts
