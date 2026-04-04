@@ -1,16 +1,23 @@
-# Multifamily
+# Multifamily Comparison
 
-Strict PyTorch vs JAX comparison on the full ADR multi-family problem.
+This subtree contains the strict PyTorch vs JAX comparison on the full ADR task with all initial-condition families.
 
-Contents:
-- `assets_multifamily/`: curated assets for the strict multi-family comparison.
-- `src/pytorch/`: PyTorch-side benchmark training dependencies used for comparison.
-- `src/jax/`: JAX implementation used in the comparison runs.
-- `scripts/`: benchmark launch scripts for training, evaluation, and inference.
-- `configs/`: PyTorch, JAX, and benchmark configs for the multifamily runs.
-- `launch/`: SLURM launchers for fulltrainer equal-pipeline runs.
-- `tests/`: lightweight validators for benchmark artifacts.
-- `plots/`: multifamily comparison figures.
+This is the main comparison result of the repository.
 
-Scope:
-- Main result: equal-pipeline PyTorch vs JAX on the reference multi-family task.
+## Purpose
+
+The multifamily track asks:
+
+- if both frameworks are given the same overall training protocol, which one produces the usable ADR surrogate on the real three-family problem?
+
+## Contents
+
+- `configs/`: PyTorch, JAX, and benchmark configs for the strict comparison
+- `launch/`: SLURM launchers for the matched multifamily runs
+- benchmark helpers and scripts referenced by those launchers
+
+## Interpretation
+
+This directory should be treated as the primary comparison evidence.
+
+Compared with `monofamily/`, the conclusions here carry more weight because they evaluate the actual target problem rather than a simplified diagnostic setting.

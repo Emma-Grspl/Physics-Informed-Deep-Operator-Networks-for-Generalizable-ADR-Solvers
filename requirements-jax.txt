@@ -1,8 +1,16 @@
-jax[cuda12]>=0.4.30
-jaxlib>=0.4.30
-optax>=0.2.3
-numpy>=1.23.0
-scipy>=1.10.0
-matplotlib>=3.6.0
+# Additional dependencies for the JAX comparison layer.
+# Install requirements.txt first, then this file.
+#
+# For local CPU environments, this file is usually enough.
+# For GPU clusters, install the platform-specific jax/jaxlib wheels first,
+# then install the remaining dependencies from this file.
+
+jax>=0.4.25
+jaxlib>=0.4.25
+optax>=0.1.9
+chex>=0.1.86
+numpy>=1.23,<2
+scipy>=1.10,<1.13
+matplotlib>=3.6
 pyyaml>=6.0
-tqdm>=4.64.0
+tqdm>=4.64
