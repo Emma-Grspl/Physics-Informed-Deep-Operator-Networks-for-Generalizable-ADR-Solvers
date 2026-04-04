@@ -1,0 +1,22 @@
+name: "benchmark_fulltrainer_t1_singauss_only"
+seed: 0
+seeds: [0]
+
+training:
+  t_max: 1.0
+  batch_size: 10
+
+evaluation:
+  n_cases_per_family: 20
+  families:
+    Sin-Gauss: [1, 2]
+
+inference:
+  batch_size: 10
+  nx: 400
+  nt: 200
+  warmup_iters: 3
+  allowed_types: [1, 2]
+
+outputs:
+  root_dir: "outputs/benchmarks"
