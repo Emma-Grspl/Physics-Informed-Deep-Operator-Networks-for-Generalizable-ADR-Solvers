@@ -1,4 +1,8 @@
-# Branch Split Matrix
+# Internal Branch Split Matrix
+
+This file is an internal maintenance note about ownership and branch separation.
+
+It is not part of the main user-facing documentation of the repository.
 
 This matrix defines the intended ownership of each top-level namespace.
 

@@ -1,4 +1,8 @@
-# Repo Split Plan
+# Internal Repo Split Plan
+
+This file is an internal maintenance note about branch separation and cleanup history.
+
+It is not part of the main user-facing repository documentation.
 
 ## Goal
 
