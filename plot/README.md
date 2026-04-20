@@ -2,6 +2,8 @@
 
 Centralized plot directory for the repository.
 
+This tree stores generated figures and curated visual artifacts. It is an output-facing namespace, not the source of truth for experiment definitions.
+
 Subfolders:
 - `Pytorch/`
   - `assets/`: selected PyTorch showcase plots
@@ -26,3 +28,5 @@ Related asset hubs:
 - `base/assets_pytorch/`
 - `jax_comparison/multifamily/assets_multifamily/`
 - `jax_comparison/monofamily/assets_monofamily/`
+
+For the authoritative experiment definitions and launchers, see [experiments/](../experiments).
