@@ -1,12 +1,19 @@
 # Base Experiment
 
-This package is reserved for the canonical PyTorch baseline protocol described by the repository.
+This package is reserved for the canonical PyTorch baseline protocol.
 
-Its role is to host the baseline experiment definition in the same public namespace as the comparison studies:
+Its purpose is to give the stable `base` study a place inside the same public experiment namespace as the comparison studies.
 
-- baseline model config
-- baseline benchmark config when relevant
-- baseline launcher(s)
+Expected contents:
+
+- baseline model configuration
+- baseline benchmark configuration when relevant
+- baseline launcher files
 - short reproduction notes
 
-At the moment, the canonical baseline implementation is still exposed through the top-level compatibility entry points documented in the root README. Until dedicated files are added here, treat this directory as a documented placeholder rather than an executable experiment package.
+Current status:
+
+- this package documents the intended place of the base protocol
+- the canonical implementation still lives primarily under `base/`
+
+So this directory should be read as a protocol placeholder, not yet as the single operational entry point for the base workflow.

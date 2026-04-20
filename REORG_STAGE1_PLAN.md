@@ -1,4 +1,8 @@
-# Reorganization Plan - Stage 1
+# Internal Reorganization Plan - Stage 1
+
+This file is an internal maintenance note from the repository cleanup process.
+
+It is not a primary entry point for readers, users, or reviewers of the scientific work.
 
 This document defines the target structure and the migration map for the repository.
 Stage 1 is intentionally non-destructive: it clarifies ownership, freezes the active source of truth, and prepares later moves without breaking current runs.
