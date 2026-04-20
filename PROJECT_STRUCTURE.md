@@ -1,4 +1,8 @@
-# Project Structure
+# Internal Project Structure Note
+
+This file is an internal maintenance note.
+
+It is not a primary entry point for readers of the repository. Start with the root `README.md`, then `base/README.md` or `jax_comparison/README.md` instead.
 
 The repository is organized around three main entry points:
 
