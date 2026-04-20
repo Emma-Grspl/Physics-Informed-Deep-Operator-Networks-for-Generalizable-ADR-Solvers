@@ -29,4 +29,4 @@ Related asset hubs:
 - `jax_comparison/multifamily/assets_multifamily/`
 - `jax_comparison/monofamily/assets_monofamily/`
 
-For the authoritative experiment definitions and launchers, see [experiments/](/Users/emma.grospellier/Thèse/Projet_These_ADR/experiments).
+For the authoritative experiment definitions and launchers, see [experiments/](../experiments).

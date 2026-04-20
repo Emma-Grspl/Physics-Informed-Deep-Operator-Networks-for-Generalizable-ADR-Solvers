@@ -9,6 +9,19 @@ This repository contains two closely related but distinct tracks:
 
 Human-facing experiment protocols are organized under `experiments/`, which acts as the public experiment registry for reproducible runs and ablations.
 
+## Scientific Scope
+
+The repository studies operator learning for the one-dimensional advection-diffusion-reaction (ADR) equation with parametric initial conditions.
+
+The central scientific goals are:
+
+- learn a surrogate that maps an initial condition and space-time query points to the corresponding ADR solution
+- enforce PDE structure through a physics-informed DeepONet (PI-DeepONet) training objective
+- compare surrogate predictions against a classical Crank-Nicolson reference solver
+- evaluate whether the PyTorch and JAX implementations behave differently under matched training protocols
+
+The main target problem is the multifamily ADR setting, where the model must generalize across several initial-condition families rather than a single restricted family.
+
 ## Intended Branching Model
 
 The recommended git organization is:
@@ -25,11 +38,11 @@ Practical rule:
 
 ## Repository Map
 
-- [base/](/Users/emma.grospellier/Thèse/Projet_These_ADR/base): canonical PyTorch ADR workflow
-- [jax_comparison/](/Users/emma.grospellier/Thèse/Projet_These_ADR/jax_comparison): comparison workspace layered on top of the base workflow
-- [experiments/](/Users/emma.grospellier/Thèse/Projet_These_ADR/experiments): official experiment registry for reproducible protocols, configs, and launchers
-- [benchmarks/](/Users/emma.grospellier/Thèse/Projet_These_ADR/benchmarks): benchmark helpers and shared benchmark configs
-- [plot/](/Users/emma.grospellier/Thèse/Projet_These_ADR/plot): generated figures and summaries
+- [base/](base): canonical PyTorch ADR workflow
+- [jax_comparison/](jax_comparison): comparison workspace layered on top of the base workflow
+- [experiments/](experiments): official experiment registry for reproducible protocols, configs, and launchers
+- [benchmarks/](benchmarks): benchmark helpers and shared benchmark configs
+- [plot/](plot): generated figures and summaries
 - `results/`: runtime outputs used by analyses
 
 Legacy top-level folders such as `src/`, `src_jax/`, `configs/`, `configs_jax/`, `launch/`, and `scripts/` remain active because some training and benchmark entry points still depend on them directly.
@@ -64,11 +77,11 @@ Jean Zay example:
 
 ## Documentation Entry Points
 
-- [base/README.md](/Users/emma.grospellier/Thèse/Projet_These_ADR/base/README.md): canonical PyTorch workflow, scope, and entry points
-- [jax_comparison/README.md](/Users/emma.grospellier/Thèse/Projet_These_ADR/jax_comparison/README.md): overall comparison workspace
-- [jax_comparison/multifamily/README.md](/Users/emma.grospellier/Thèse/Projet_These_ADR/jax_comparison/multifamily/README.md): strict full-task comparison
-- [jax_comparison/monofamily/README.md](/Users/emma.grospellier/Thèse/Projet_These_ADR/jax_comparison/monofamily/README.md): mono-family diagnostics and ablations
-- [experiments/README.md](/Users/emma.grospellier/Thèse/Projet_These_ADR/experiments/README.md): official experiment registry and protocol layout
+- [base/README.md](base/README.md): canonical PyTorch workflow, scope, and entry points
+- [jax_comparison/README.md](jax_comparison/README.md): overall comparison workspace
+- [jax_comparison/multifamily/README.md](jax_comparison/multifamily/README.md): strict full-task comparison
+- [jax_comparison/monofamily/README.md](jax_comparison/monofamily/README.md): mono-family diagnostics and ablations
+- [experiments/README.md](experiments/README.md): official experiment registry and protocol layout
 
 ## Key Results Snapshot
 

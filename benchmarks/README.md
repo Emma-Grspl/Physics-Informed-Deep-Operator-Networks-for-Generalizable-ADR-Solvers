@@ -21,4 +21,4 @@ Suggested workflow:
 4. run the corresponding `inference_benchmark.py`
 5. aggregate with `benchmarks/aggregate_results.py`
 
-For human-facing experiment definitions, use [experiments/README.md](/Users/emma.grospellier/Thèse/Projet_These_ADR/experiments/README.md). The `benchmarks/` tree contains the execution helpers, not the public protocol registry.
+For human-facing experiment definitions, use [experiments/README.md](../experiments/README.md). The `benchmarks/` tree contains the execution helpers, not the public protocol registry.

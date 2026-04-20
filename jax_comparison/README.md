@@ -20,8 +20,8 @@ It is intentionally separated from `base/` so the stable PyTorch workflow can re
 
 ## Structure
 
-- [multifamily/](/Users/emma.grospellier/Thèse/Projet_These_ADR/jax_comparison/multifamily): strict full-task comparison on the three-family ADR problem
-- [monofamily/](/Users/emma.grospellier/Thèse/Projet_These_ADR/jax_comparison/monofamily): mono-family diagnostics and targeted ablations
+- [multifamily/](multifamily): strict full-task comparison on the three-family ADR problem
+- [monofamily/](monofamily): mono-family diagnostics and targeted ablations
 
 Design choice:
 

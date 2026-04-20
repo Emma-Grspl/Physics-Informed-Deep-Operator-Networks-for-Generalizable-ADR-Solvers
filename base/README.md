@@ -15,6 +15,8 @@ This subtree contains the reference PyTorch workflow for:
 - classical Crank-Nicolson comparison
 - baseline analysis plots and saved checkpoints
 
+In manuscript terms, `base/` is the stable scientific baseline of the repository: it contains the reference implementation used to support the main ADR surrogate-learning claims independently of the PyTorch versus JAX comparison layer.
+
 ## Directory Layout
 
 - `src/`: main PyTorch codebase for models, data, physics, training, and utilities
@@ -54,7 +56,7 @@ Does not belong here:
 - framework-comparison-only launchers
 - mono-family comparison diagnostics that exist only to compare backends
 
-Those belong under [jax_comparison/](/Users/emma.grospellier/Thèse/Projet_These_ADR/jax_comparison).
+Those belong under [jax_comparison/](../jax_comparison).
 
 ## Branching Guidance
 
