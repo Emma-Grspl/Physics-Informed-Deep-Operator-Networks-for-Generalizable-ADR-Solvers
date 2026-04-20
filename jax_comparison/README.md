@@ -32,6 +32,78 @@ This layer groups:
 
 It is intentionally separated from `base/` so that the stable PyTorch workflow does not get buried under comparison material.
 
+## Executive Summary
+
+This subtree exists because the answer to "does the model work?" is not the same as the answer to "which framework is better?".
+
+The central outcome of the comparison is:
+
+- JAX is much faster in raw training time
+- PyTorch is much better in final solution quality on the real multifamily ADR task
+
+So this subtree is not a showcase of JAX beating PyTorch. It is a structured investigation of why a faster framework can still be the worse scientific choice for this problem.
+
+## Main Results
+
+### Strict Multifamily Comparison
+
+This is the most important result in the entire comparison layer.
+
+PyTorch on the strict three-family benchmark:
+
+- global relative L2: `0.00507 +- 0.00392`
+- Tanh: `0.00139 +- 0.00035`
+- Sin-Gauss: `0.00978 +- 0.00286`
+- Gaussian: `0.00405 +- 0.00100`
+- training time: about `5329 s`
+
+JAX on the matched strict three-family benchmark:
+
+- global relative L2: about `1.67`
+- Tanh: about `1.24`
+- Sin-Gauss: about `2.64`
+- Gaussian: about `1.13`
+- training time: about `349 s`
+
+Interpretation:
+
+- JAX is dramatically faster in raw wall-clock training time
+- that speed does not translate into a usable final surrogate under the matched protocol
+- PyTorch is therefore the framework that carries the main scientific conclusion of the project
+
+### Monofamily Diagnostics
+
+The monofamily studies are not the main benchmark, but they are crucial for interpretation.
+
+They show that:
+
+- difficulty is not distributed uniformly across families
+- `Tanh` is much easier than the other families
+- `Sin-Gauss` and `Gaussian` remain genuinely difficult even when isolated
+- the gap between frameworks is not only a multifamily effect
+
+This matters because it prevents an overly simple interpretation such as "JAX only failed because the task was too broad".
+
+### Gaussian Hypothesis Ablation
+
+The Gaussian ablation isolates two factors:
+
+- free learning versus ansatz for the initial condition
+- with and without an L-BFGS finisher
+
+Main aggregated results:
+
+- PyTorch free / no LBFGS: `0.8239 +- 0.0611`
+- PyTorch ansatz / no LBFGS: `0.1606 +- 0.0841`
+- JAX free / no LBFGS: `1.0065 +- 0.0060`
+- JAX ansatz / no LBFGS: `0.4814 +- 0.0056`
+
+Interpretation:
+
+- the ansatz is the dominant helpful factor
+- L-BFGS does not provide a robust gain in the tested setting
+- PyTorch still remains clearly ahead in final error
+
 ## Structure
 
 - [multifamily/](multifamily): main full-task comparison on the three-family ADR problem
@@ -41,6 +113,17 @@ Interpretation:
 
 - `multifamily/` carries the main framework conclusion
 - `monofamily/` exists to explain mechanisms, not to replace the main benchmark
+
+## What A Recruiter Or External Reader Should Take Away
+
+If someone scans this branch quickly, the message should be:
+
+- the project does not stop at "we trained a model"
+- it evaluates framework choice seriously
+- it measures both speed and quality
+- it investigates failure modes rather than hiding them
+
+That is the professional value of this branch.
 
 ## Relationship With The Rest Of The Repository
 
@@ -80,6 +163,24 @@ Does not belong here:
 - stable PyTorch baseline logic that would remain valuable without any JAX work
 
 That stable material belongs under [base/](../base).
+
+## Main Limitations
+
+This subtree is informative, but it is also where the main limitations of the project become visible.
+
+### Scientific limitations
+
+- the matched JAX pipeline is not competitive in final quality in the current study
+- some hard families remain difficult even after narrowing the task
+- the comparison is strong empirically, but it does not by itself prove a framework-level theorem
+
+### Practical limitations
+
+- this comparison layer still depends on parts of the broader repository infrastructure
+- some comparison logic is layered on top of compatibility-era folders rather than a perfectly minimal codebase
+- results are clear, but the repository still reflects an active research workflow rather than a polished product package
+
+These limitations are important to state explicitly. They make the branch more credible, not less.
 
 ## Branching Guidance
 
