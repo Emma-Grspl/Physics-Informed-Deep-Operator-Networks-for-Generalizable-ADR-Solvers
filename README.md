@@ -1,194 +1,224 @@
-# PyTorch vs JAX for Physics-Informed DeepONets on the 1D ADR Equation
+# JAX vs PyTorch Comparison for a Physics-Informed DeepONet on the 1D ADR Equation
 
 [![CI](https://github.com/Emma-Grspl/Physics-Informed-Deep-Operator-Networks-for-Generalizable-ADR-Solvers/actions/workflows/ci.yml/badge.svg)](https://github.com/Emma-Grspl/Physics-Informed-Deep-Operator-Networks-for-Generalizable-ADR-Solvers/actions/workflows/ci.yml)
 
-This branch is the comparison branch of the project.
+This branch is the dedicated comparison branch of the project. Its purpose is not to establish whether a PI-DeepONet works on the ADR problem in absolute terms. That question is addressed in the `base` branch. The purpose here is narrower and more empirical: compare two closely matched implementations of the same scientific workflow, one in PyTorch and one in JAX, and determine which framework delivers the better practical outcome on the parametric ADR task.
 
-Its role is not to ask whether the ADR PI-DeepONet works in absolute terms. That is the role of the `base` branch.
+## Introduction
 
-Its role is to answer a different question:
-
-- when the same ADR operator-learning problem is trained under PyTorch and JAX workflows, which framework delivers the better scientific outcome?
-
-This root README is intended to be self-sufficient. A recruiter, collaborator, or reviewer should be able to understand the comparison protocol, the main results, the ablations, the limitations, and the final conclusion without searching through the repository.
-
-## Executive Summary
-
-This branch compares PyTorch and JAX on a physics-informed DeepONet for the one-dimensional advection-diffusion-reaction equation.
-
-The main conclusion is clear:
-
-- JAX is much faster in raw training time
-- PyTorch is much better in final solution quality on the real multifamily ADR task
-
-The comparison becomes more informative when broken down:
-
-- the multifamily benchmark provides the main framework conclusion
-- monofamily benchmarks show that some families are intrinsically harder than others
-- ansatz-based experiments show that initial-condition structure matters strongly
-- the Gaussian Hypothesis ablation shows that ansatz matters much more than L-BFGS in this study
-
-If someone only reads one sentence from this branch, it should be:
-
-- for this ADR problem and this training logic, PyTorch is the reliable scientific choice, while JAX is the faster but substantially less accurate one
-
-## Problem Setting
-
-The physical problem is the one-dimensional advection-diffusion-reaction equation
+The physical problem studied in this branch is the one-dimensional advection-diffusion-reaction equation
 
 \[
-u_t + v\,u_x - D\,u_{xx} = \mu (u-u^3),
+u_t + v\,u_x - D\,u_{xx} = \mu (u-u^3).
 \]
 
-where:
+This equation describes the evolution of a quantity \(u(x,t)\) under the combined action of three physical mechanisms.
 
-- \(v\) is the advection velocity
-- \(D\) is the diffusion coefficient
-- \(\mu\) controls the nonlinear reaction term
+- \(u_t\) represents the time evolution of the solution.
+- \(v\,u_x\) is the advective transport term, controlled by the velocity \(v\).
+- \(D\,u_{xx}\) is the diffusion term, controlled by the diffusion coefficient \(D\).
+- \(\mu (u-u^3)\) is a cubic nonlinear reaction term, controlled by \(\mu\).
 
-The task is parametric. The model must learn a surrogate over varying physical coefficients and varying initial conditions rather than solve a single fixed case.
+ADR equations arise in many modeling settings involving simultaneous transport, diffusion, and local transformation, including concentration transport, simplified reaction systems, and broader parametric PDE benchmark problems. In this project, the goal is not to solve one fixed instance, but to learn a surrogate that generalizes across a family of physical coefficients and initial conditions.
 
-The benchmarked families of initial conditions are:
+## Branch Structure
+
+This branch is organized so that the comparison can be understood from the repository root.
+
+- `code/` contains the source code, benchmark runners, configurations, launch scripts, and tests required for the comparison.
+- `code/src/` contains the PyTorch implementation used on the comparison side.
+- `code/src_jax/` contains the JAX implementation.
+- `code/benchmarks/` contains standardized training, evaluation, and inference runners.
+- `code/configs/` and `code/configs_jax/` contain the PyTorch and JAX model configurations.
+- `code/experiments/` contains the experiment registry and protocol structure.
+- `code/code_experiments/` contains comparison-specific plotting and synthesis scripts.
+- `code/launch/` contains the SLURM launchers.
+- `figures/` contains the full comparison figure sets.
+- `assets/` contains a shorter curated selection of the most representative visuals.
+- `models/` contains the versioned PyTorch reference checkpoint stored at branch root.
+
+The organizing principle is straightforward: `code/` runs the comparison, `figures/` stores the detailed outputs, `assets/` surfaces the most useful visuals, and `models/` holds the root-level versioned checkpoint.
+
+## Parametric ADR Problem Formulation
+
+The problem is parametric rather than single-instance. The model is therefore asked to learn a family of solutions that depends on both physical coefficients and the shape of the initial condition.
+
+The physical coefficients vary over the following ranges:
+
+- \(v \in [0.5, 1.0]\)
+- \(D \in [0.01, 0.2]\)
+- \(\mu \in [0.0, 1.0]\)
+
+The initial conditions are also parameterized:
+
+- amplitude \(A \in [0.7, 1.0]\)
+- center \(x_0\), used to position the profile
+- width \(\sigma \in [0.4, 0.8]\)
+- frequency or slope \(k \in [1.0, 3.0]\), depending on the family
+
+Three main families of initial conditions are considered:
 
 - `Tanh`
 - `Sin-Gauss`
 - `Gaussian`
 
-This makes the task a genuine operator-learning problem with heterogeneous difficulty across families.
+The domain is one-dimensional in space, and the time horizon depends on the protocol. The main strict comparison is carried out on a short horizon with \(T_{\max}=1.0\), so that the comparison remains closely matched between frameworks. The numerical reference discretization is chosen to produce a reliable ground truth against which both neural implementations can be evaluated.
 
-## What This Branch Is Meant To Prove
+This makes the task a genuine operator-learning problem: the goal is not just to predict one solution, but to learn a mapping from physical parameters, initial-condition parameters, and space-time coordinates \((x,t)\) to the value of the solution.
 
-This branch answers four practical questions:
+## Reference Numerical Solver: Crank-Nicolson
 
-1. which framework gives the best final ADR surrogate under comparable protocols?
-2. how large is the speed advantage of JAX in wall-clock training?
-3. do the same failure modes appear in multifamily and monofamily settings?
-4. does adding an ansatz or an L-BFGS finisher materially change the conclusion?
+The reference numerical solver used throughout this branch is a Crank-Nicolson solver. It provides the numerical ground truth against which the networks are evaluated.
 
-It is therefore not a generic “JAX port” branch. It is a structured empirical comparison.
+Crank-Nicolson is a classical implicit time discretization scheme for time-dependent PDEs. Its main advantage is that it offers a good balance between numerical stability, temporal accuracy, and robustness. In this branch, it serves three essential purposes:
 
-## Architecture And Training Logic
+- generating the reference solutions used to measure the network error,
+- providing a timing baseline for inference comparisons,
+- anchoring the quality assessment of the learned surrogate to a standard numerical method.
 
-Both frameworks use the same modeling idea:
+This reference is essential because a framework comparison only makes sense when both implementations are assessed against the same numerical target. The goal is therefore not to replace Crank-Nicolson as a reference method, but to compare how well PyTorch and JAX can approximate its solutions quickly and accurately.
 
-- a physics-informed DeepONet
-- a branch network for physical and initial-condition parameters
-- a trunk network for space-time coordinates
-- a final interaction between both representations to predict \(u(x,t)\)
+## Neural Network Description
 
-The comparison keeps the architecture family aligned:
+The model used in this branch is a Physics-Informed Deep Operator Network, or PI-DeepONet. It is designed to learn an operator that maps problem parameters and space-time coordinates to the solution value.
+
+The architecture relies on a branch/trunk decomposition.
+
+- The `branch` network encodes the physical parameters and the parameters describing the initial condition.
+- The `trunk` network encodes the evaluation coordinates \((x,t)\).
+
+The final output is obtained through the interaction of both representations.
+
+In the main comparison, the architecture is intentionally aligned between PyTorch and JAX:
 
 - branch depth: `5`
 - trunk depth: `4`
 - branch width: `256`
 - trunk width: `256`
 - latent dimension: `256`
-- Fourier features: `20`
+- number of Fourier features: `20`
 
-The shared training philosophy is also aligned:
+The training logic remains physics-informed in both frameworks. The loss combines:
 
-1. warm up on the initial condition
-2. train progressively in time
-3. audit the model against the Crank-Nicolson reference
-4. identify hard regimes
-5. apply targeted correction
-6. optionally use a final refinement stage
+- a PDE residual term,
+- an initial-condition term,
+- a boundary-condition term.
 
-The loss remains physics-informed in both frameworks and combines:
+In the main protocol, the collocation and batch settings are matched across frameworks:
 
-- PDE residual loss
-- initial-condition loss
-- boundary-condition loss
+- `batch_size = 4096`
+- `n_sample = 4096`
 
-The point of the branch is not to compare arbitrary implementations. It is to compare two frameworks under a closely matched scientific protocol.
+The core optimizer is Adam-like in both workflows, combined with controlled temporal progression, audits, and targeted correction. In some ablations, an additional L-BFGS refinement stage is tested, especially in the `Gaussian Hypothesis` study.
 
-## Reference Comparison Protocol
+## JAX vs PyTorch Protocol
 
-The most important public comparison in this branch is the strict multifamily benchmark.
+The protocol in this branch is designed to answer one specific question: under closely matched architecture and training logic, which framework produces the better scientific result on the parametric ADR problem?
 
-Its visible branch-level settings are:
+The comparison targets the following quantities:
 
-- target horizon: `T_max = 1.0`
-- batch size: `4096`
-- sampled collocation points per draw: `4096`
-- warmup iterations: `5000`
-- iterations per time step: `2500`
-- correction iterations: `4000`
-- number of correction loops: `1`
-- evaluation set: `20` cases per family
-- benchmark seed: `0`
+- final accuracy on the main multifamily task,
+- family-wise error across initial-condition types,
+- total training time,
+- inference time relative to Crank-Nicolson,
+- robustness of the conclusion in monofamily and ansatz-based settings.
 
-The benchmark compares:
+To make the comparison credible, the two frameworks share the same high-level training philosophy:
 
-- training time
-- final relative L2 error
-- family-wise error
-- inference timing against Crank-Nicolson
+1. an initial-condition warmup phase,
+2. progressive time training,
+3. repeated audits against the Crank-Nicolson reference,
+4. targeted correction on hard regimes,
+5. optional final refinement.
 
-The multifamily benchmark is the primary result.
+The main multifamily protocol uses in particular:
 
-The monofamily and ansatz experiments are diagnostic layers that explain why the main result looks the way it does.
+- `T_max = 1.0`
+- `n_warmup = 5000`
+- `n_iters_per_step = 2500`
+- `n_iters_correction = 4000`
+- `nb_loop = 1`
+- `40` global audit cases
+- `12` audit cases per family
+- `20` evaluation cases per family
+- `seed = 0` for the primary benchmark
 
-## Main Results
+The retained comparison metrics are:
 
-### Multifamily Benchmark
+- global relative \(L^2\) error,
+- family-wise relative \(L^2\) error,
+- total training time,
+- full-grid inference time,
+- time-jump inference time,
+- speedup relative to Crank-Nicolson.
 
-This is the decisive result of the branch.
+This choice of metrics is deliberate. A faster framework is not automatically better if the final surrogate is not scientifically usable. Likewise, a single global error is not enough to explain failure modes, which is why family-wise analysis, monofamily runs, and ansatz experiments are included.
 
-PyTorch on the strict three-family benchmark:
+The comparison is reproducible through:
 
-- global relative L2: `0.00507 +- 0.00392`
-- Tanh: `0.00139 +- 0.00035`
-- Sin-Gauss: `0.00978 +- 0.00286`
-- Gaussian: `0.00405 +- 0.00100`
+- explicit configuration files for each backend,
+- standardized benchmark runners,
+- fixed benchmark seeds,
+- separated training, evaluation, and inference outputs.
+
+## Numerical Results
+
+The main branch-level result is unambiguous: in the tested protocol, JAX is much faster, but PyTorch is far better in final accuracy.
+
+### Main Multifamily Result
+
+On the strict multifamily benchmark:
+
+PyTorch obtains:
+
+- global relative \(L^2\): `0.00507 +- 0.00392`
+- `Tanh`: `0.00139 +- 0.00035`
+- `Sin-Gauss`: `0.00978 +- 0.00286`
+- `Gaussian`: `0.00405 +- 0.00100`
 - training time: about `5329 s`
-- time-jump speedup vs Crank-Nicolson: about `x175`
+- time-jump speedup relative to Crank-Nicolson: about `x175`
 
-JAX on the matched strict three-family benchmark:
+JAX obtains:
 
-- global relative L2: `1.66884 +- 1.62812`
-- Tanh: `1.23642 +- 0.15997`
-- Sin-Gauss: `2.63937 +- 2.54170`
-- Gaussian: `1.13073 +- 0.21905`
+- global relative \(L^2\): `1.66884 +- 1.62812`
+- `Tanh`: `1.23642 +- 0.15997`
+- `Sin-Gauss`: `2.63937 +- 2.54170`
+- `Gaussian`: `1.13073 +- 0.21905`
 - training time: about `349 s`
-- time-jump speedup vs Crank-Nicolson: about `x45`
+- time-jump speedup relative to Crank-Nicolson: about `x45`
 
-Interpretation:
+The interpretation is direct:
 
-- JAX is dramatically faster in training time
-- this gain does not translate into a scientifically competitive surrogate
-- PyTorch is the only backend that delivers the main target result at a strong level of accuracy
+- JAX is highly advantageous in raw training time,
+- this gain does not translate into competitive final solution quality,
+- in this branch, PyTorch is the only backend that delivers a genuinely reliable multifamily surrogate.
 
-This is the central conclusion of the entire branch.
+### Family-Wise Analysis
 
-## Monofamily Diagnostics
+The monofamily experiments help distinguish easy cases from hard cases.
 
-The monofamily experiments are not the main benchmark, but they are essential for interpretation.
-
-PyTorch monofamily results:
+PyTorch results:
 
 - `Tanh` only: `0.00158 +- 0.00048`
 - `Sin-Gauss` only: about `1.00000`
 - `Gaussian` only: `0.87212 +- 0.01769`
 
-JAX monofamily results:
+JAX results:
 
 - `Tanh` only: `9.07159 +- 15.67342`
 - `Sin-Gauss` only: `1.39526 +- 0.41086`
 - `Gaussian` only: `1.02204 +- 0.05012`
 
-Interpretation:
+This shows that:
 
-- `Tanh` is easy for PyTorch but unstable for JAX in the tested setup
-- `Sin-Gauss` is genuinely difficult for both frameworks
-- `Gaussian` remains difficult when learned freely
-- the framework gap is not only a multifamily effect
+- `Tanh` is learned very well by PyTorch but is unstable in the tested JAX setup,
+- `Sin-Gauss` is difficult for both frameworks,
+- freely learned `Gaussian` remains hard,
+- the framework gap is not only a multifamily generalization effect, but also appears on isolated families.
 
-This matters because it shows that the comparison is not just “PyTorch wins because the joint task is hard”. Some families are already problematic in isolation.
+### Ansatz Results
 
-## Ansatz Results
-
-The branch also includes ansatz-oriented experiments designed to test whether explicitly structuring the initial condition improves learning.
+The ansatz experiments are designed to enforce more structure on the initial condition and test the effect of that structure on learning.
 
 PyTorch ansatz results:
 
@@ -199,22 +229,20 @@ JAX ansatz results:
 
 - `Sin-Gauss` with ansatz: `0.89959 +- 0.13354`
 
-Interpretation:
+The interpretation is the following:
 
-- ansatz helps little on `Sin-Gauss`
-- ansatz helps strongly on `Gaussian`
-- the representation and enforcement of the initial condition is one of the main levers of performance in this repository
+- the ansatz helps little on `Sin-Gauss`,
+- the ansatz helps strongly on `Gaussian`,
+- a substantial part of the difficulty comes from how the initial condition is represented inside the learning problem.
 
-This is one of the most important messages to make visible in the branch, because it explains part of the difficulty in a mechanistic way rather than only reporting error numbers.
+### Gaussian Hypothesis Ablation
 
-## Gaussian Hypothesis Ablation
+The `Gaussian Hypothesis` ablation isolates two factors:
 
-The Gaussian Hypothesis ablation isolates two factors:
+- free learning versus ansatz on the initial condition,
+- with and without an L-BFGS finisher.
 
-- free learning versus ansatz on the initial condition
-- with and without an L-BFGS finisher
-
-Aggregated results across three seeds:
+Aggregated results over three seeds:
 
 - PyTorch free / no LBFGS: `0.8239 +- 0.0611`
 - PyTorch free / LBFGS: `0.8658 +- 0.0745`
@@ -225,78 +253,95 @@ Aggregated results across three seeds:
 - JAX ansatz / no LBFGS: `0.4814 +- 0.0056`
 - JAX ansatz / LBFGS: `0.4802 +- 0.0056`
 
-Interpretation:
+This ablation shows that:
 
-- the ansatz is the dominant helpful factor
-- L-BFGS does not provide a robust gain in the tested Gaussian setting
-- PyTorch remains clearly ahead in final error
+- the ansatz is the dominant helpful factor,
+- L-BFGS does not provide a robust gain in this setting,
+- PyTorch remains clearly ahead of JAX in final error.
 
-This ablation sharpens the overall branch conclusion:
+### Global Result Summary
 
-- the main bottleneck is not simply optimizer choice
-- the main bottleneck is also how the initial condition is encoded into the learning problem
+At the branch level, the main scientific message is simple:
 
-## What This Branch Establishes
+- JAX accelerates training substantially,
+- that acceleration comes with a major loss in final quality,
+- PyTorch is the reference backend for obtaining a credible surrogate on the multifamily task,
+- monofamily and ansatz experiments show that initial-condition structure plays a central role in the difficulty of the problem.
 
-This branch supports the following conclusions:
+## Conclusion
 
-- framework choice materially changes the final quality of the learned ADR surrogate
-- raw training speed is not a sufficient metric for scientific usefulness
-- PyTorch is the reliable backend for the main ADR result in this repository
-- JAX is valuable as a comparison and diagnostic backend, but not as the reference backend under the tested setup
-- ansatz-based structure can matter more than second-order finishing in the hard Gaussian regime
+This branch shows that framework choice is not a minor implementation detail. In this project, it strongly affects the final scientific quality of the results.
 
-## Limitations
+The conclusion can be summarized as follows:
 
-The branch is useful because it is honest about what works and what does not.
+- PyTorch is slower, but much more reliable,
+- JAX is faster, but does not reach the required level of accuracy on the main task in the tested setup,
+- the families of initial conditions do not have uniform difficulty,
+- ansatz-based structure is a more meaningful lever than L-BFGS in the hardest regimes studied here.
 
-Scientific limitations:
+In other words, this branch does not simply rank two frameworks. It also identifies which parts of the parametric ADR problem drive the difficulty of learning, and why some modeling choices are much more consequential than others.
 
-- the matched JAX workflow is not competitive in final quality in the current study
-- some hard families remain difficult even after narrowing the task
-- the branch provides strong empirical evidence, but not a theoretical proof of framework superiority
+## Branch Usage
 
-Repository limitations:
+The branch is organized so that the comparison workflow can be run from a small set of clear entry points.
 
-- the branch still sits inside a larger research repository rather than a perfectly minimal comparison package
-- some infrastructure was inherited from iterative experimentation rather than designed top-down in one pass
-- the content is now documented clearly, but the repository still reflects active research history
-
-These limitations should be visible. They make the branch more credible, not less.
-
-## What To Read In This Branch
-
-If you want the quick branch-level story:
-
-1. this README
-2. the figures under `assets/`
-3. the comparison subtree under `jax_comparison/`
-
-If you want the protocol and reproduction layer:
-
-1. `experiments/`
-2. `benchmarks/`
-3. `results/`
-
-The intended rule is:
-
-- this root README gives the full branch narrative
-- the rest of the branch exists to support, reproduce, or inspect that narrative
-
-## Environment
-
-Install the base environment first:
+### Install
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-Then install the comparison-specific dependencies:
-
-```bash
+pip install -r requirements-base.txt
 pip install -r requirements-jax.txt
 ```
 
-For GPU systems and HPC environments, install the compatible `jax` and `jaxlib` build first, then install the remaining comparison dependencies.
+### Run tests
+
+```bash
+pytest -q code/tests
+```
+
+### Run the default PyTorch comparison benchmark
+
+```bash
+python code/benchmarks/pytorch/train_fulltrainer_benchmark.py
+```
+
+### Run the default JAX comparison benchmark
+
+```bash
+python code/benchmarks/jax/train_fulltrainer_benchmark.py
+```
+
+### Run evaluation
+
+```bash
+python code/benchmarks/pytorch/eval_benchmark.py
+python code/benchmarks/jax/eval_benchmark.py
+```
+
+### Run inference timing
+
+```bash
+python code/benchmarks/pytorch/inference_benchmark.py
+python code/benchmarks/jax/inference_benchmark.py
+```
+
+### Generate comparison plots
+
+```bash
+python code/code_experiments/plot_jax_vs_pytorch_comparison.py
+python code/code_experiments/plot_monofamily_comparison.py
+python code/code_experiments/plot_monofamily_ansatz_comparison.py
+python code/code_experiments/analyze_gaussian_hypothesis_results.py
+```
+
+### Useful directories
+
+- `code/benchmarks/` contains the benchmark runners.
+- `code/configs/` and `code/configs_jax/` contain the model configurations.
+- `code/experiments/` contains the experiment registry.
+- `figures/` contains the full comparison figure sets.
+- `assets/` contains a compact visual selection.
+- `models/` contains the main versioned reference checkpoint at branch root.
+
+This branch is meant to be read as a self-contained comparison branch: runnable code, curated figures, and a root README exposing the main scientific conclusions directly.

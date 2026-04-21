@@ -19,13 +19,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest
+        - name: Install dependencies
+          run: |
+            python -m pip install --upgrade pip
+            pip install -r requirements-base.txt pytest
 
-      - name: Run tests
-        run: python -m pytest -q
+        - name: Run tests
+          run: python -m pytest -q code/tests
 
-      - name: Verify source compilation
-        run: python -m compileall scripts src test
+        - name: Verify source compilation
+          run: python -m compileall code/benchmarks code/code_experiments code/src code/src_jax code/tests
