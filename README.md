@@ -6,16 +6,16 @@ This branch is the PyTorch reference branch of the project. It presents the cano
 
 The physical problem studied in this branch is a one-dimensional advection-diffusion-reaction equation of the form
 
-\[
+$$
 u_t + v\,u_x - D\,u_{xx} = \mu (u-u^3).
-\]
+$$
 
 The quantity \(u(x,t)\) depends on space \(x\) and time \(t\). The different terms of the equation have a straightforward physical interpretation.
 
-- \(u_t\) describes the temporal evolution of the solution.
-- \(v\,u_x\) represents advection, that is, transport of the quantity of interest.
-- \(D\,u_{xx}\) represents diffusion, which tends to smooth the solution spatially.
-- \(\mu (u-u^3)\) represents a cubic nonlinear reaction term.
+- $\(u_t\)$ describes the temporal evolution of the solution.
+- $\(v\,u_x\)$ represents advection, that is, transport of the quantity of interest.
+- $\(D\,u_{xx}\)$ represents diffusion, which tends to smooth the solution spatially.
+- $\(\mu (u-u^3)\)$ represents a cubic nonlinear reaction term.
 
 This type of equation appears in problems where a quantity is simultaneously transported, diffused, and locally transformed. In this project, the goal is not to solve a single isolated case, but to construct a neural surrogate able to generalize across a family of parametric ADR problems.
 
@@ -44,33 +44,33 @@ The problem studied here is parametric. The network therefore does not learn a s
 
 The physical coefficients vary over the following intervals:
 
-- \(v \in [0.5, 1.0]\)
-- \(D \in [0.01, 0.2]\)
-- \(\mu \in [0.0, 1.0]\)
+- $\(v \in [0.5, 1.0]\)$
+- $\(D \in [0.01, 0.2]\)$
+- $\(\mu \in [0.0, 1.0]\)$
 
 The initial conditions are also parameterized:
 
-- \(A \in [0.7, 1.0]\)
-- \(\sigma \in [0.4, 0.8]\)
-- \(k \in [1.0, 3.0]\)
-- \(x_0 = 0\)
+- $\(A \in [0.7, 1.0]\)$
+- $\(\sigma \in [0.4, 0.8]\)$
+- $\(k \in [1.0, 3.0]\)$
+- $\(x_0 = 0\)$
 
 The spatial domain is
 
-\[
+$$
 x \in [-5, 8],
-\]
+$$
 
 and the full baseline time horizon is
 
-\[
+$$
 T_{\max} = 3.0.
-\]
+$$
 
 The reference discretization used for the baseline audits is:
 
-- \(N_x = 500\)
-- \(N_t = 200\)
+- $\(N_x = 500\)$
+- $\(N_t = 200\)$
 
 Three main families of initial conditions are considered:
 
@@ -158,9 +158,9 @@ The main mechanisms are:
 
 The temporal curriculum is defined through three zones:
 
-- from \(t=0\) to \(t=0.05\): time step \(0.01\)
-- from \(t=0.05\) to \(t=0.30\): time step \(0.05\)
-- from \(t=0.30\) to \(t=3.0\): time step \(0.10\)
+- from $\(t=0\)$ to $\(t=0.05\)$: time step $\(0.01\)$
+- from $\(t=0.05\)$ to $\(t=0.30\)$: time step $\(0.05\)$
+- from $\(t=0.30\)$ to $\(t=3.0\)$: time step $\(0.10\)$
 
 The initial and final loss weights also play an important role:
 
@@ -180,19 +180,18 @@ The central idea behind this protocol is that convergence is defined by the effe
 
 The main conclusion of this branch is positive: the PyTorch PI-DeepONet learns a good surrogate for the multifamily ADR problem.
 
-On the reference multifamily benchmark with 20 evaluation cases per family, the obtained results are:
+Full multifamily benchmark with 1000 evaluation cases per family:
 
-- global relative \(L^2\): `0.00507 ± 0.00392`
-- `Tanh`: `0.00139 ± 0.00035`
-- `Sin-Gauss`: `0.00978 ± 0.00286`
-- `Gaussian`: `0.00405 ± 0.00100`
+- `Tanh`: `0.0044 ± 0.0015`
+- `Sin-Gauss`: `0.0320 ± 0.0200`
+- `Gaussian`: `0.0148 ± 0.0100`
 
-The inference measurements are:
+Time jump benchmark:
 
-- full-grid inference time: `0.210 s`
-- time-jump inference time: `0.00285 s`
-- reference Crank-Nicolson time: `0.499 s`
-- time-jump speedup: `×175.03`
+- full-grid inference time: `3.79 s`
+- time-jump inference time: `0.034 s`
+- Crank-Nicolson reference time: `0.7 s`
+- speedup on time-jump inference: `×21`
 
 The total training time for the corresponding short multifamily benchmark is:
 
