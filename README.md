@@ -10,11 +10,11 @@ This project combines scientific ML, operator learning, benchmarking, and reprod
 
 ### Key Results
 - Relative L2 error: **0.00507**
-- Inference speedup: **×175** vs Crank-Nicolson
+- Inference speedup: **×21** vs Crank-Nicolson
 - Strong generalization across 3 initial-condition families
 - Full PyTorch vs JAX benchmark included
 
-![Snapshots](assets/base/base_snapshots.png)
+![Snapshots](assets/base/base_global_mean_L2.png)
 
 ![Speedup](assets/base/base_time_jump_speedup.png)
 
@@ -70,7 +70,7 @@ ADR combines:
 - diffusion: spatial smoothing controlled by \(D\)
 - reaction: nonlinear local dynamics controlled by \(\mu\)
 
-The goal is not to solve one trajectory, but to learn a surrogate that generalizes across physical coefficients and initial-condition families.
+The goal is to learn a surrogate that generalizes across physical coefficients and initial-condition families.
 
 ## Method Overview
 
@@ -103,16 +103,16 @@ The surrogate is benchmarked against a Crank-Nicolson reference solver for both 
 
 ### Baseline PI-DeepONet
 
-- Global relative \(L^2\): `0.00507 ± 0.00392`
+- Global relative \(L^2\): `0.0170 ± 0.00392`
 - Speedup: `×175.03`
-- Strongest family: `Tanh` with `0.00139 ± 0.00035`
-- Hardest family: `Sin-Gauss` with `0.00978 ± 0.00286`
+- Strongest family: `Tanh` with `0.0044 ± 0.00015`
+- Hardest family: `Sin-Gauss` with `0.0320 ± 0.0020`
 
-Full multifamily benchmark with 20 evaluation cases per family:
+Full multifamily benchmark with 1000 evaluation cases per family:
 
-- `Tanh`: `0.00139 ± 0.00035`
-- `Sin-Gauss`: `0.00978 ± 0.00286`
-- `Gaussian`: `0.00405 ± 0.00100`
+- `Tanh`: `0.0044 ± 0.0015`
+- `Sin-Gauss`: `0.0320 ± 0.0200`
+- `Gaussian`: `0.0148 ± 0.0100`
 
 Inference benchmark:
 
@@ -121,7 +121,7 @@ Inference benchmark:
 - Crank-Nicolson reference time: `0.499 s`
 - speedup on time-jump inference: `×175.03`
 
-Training time for the short multifamily baseline protocol:
+Training time for the short multifamily baseline protocol (for $T_{max}$ = 1}:
 
 - total training time: `5329.21 s`
 
