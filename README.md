@@ -14,7 +14,7 @@ This project combines scientific ML, operator learning, benchmarking, and reprod
 - Strong generalization across 3 initial-condition families
 - Full PyTorch vs JAX benchmark included
 
-![Snapshots](assets/base/base_global_mean_L2.png)
+![Mean Error](assets/base/base_global_mean_L2.png)
 
 ![Speedup](assets/base/base_time_jump_speedup.png)
 
@@ -60,15 +60,15 @@ Fast PDE surrogates can accelerate:
 
 This repository studies a one-dimensional advection-diffusion-reaction equation:
 
-\[
-u_t + v\,u_x - D\,u_{xx} = \mu (u-u^3).
-\]
+$$
+u_t + v \times u_x - D \times u_{xx} = \mu (u-u^3).
+$$
 
 ADR combines:
 
-- advection: transport driven by velocity \(v\)
-- diffusion: spatial smoothing controlled by \(D\)
-- reaction: nonlinear local dynamics controlled by \(\mu\)
+- advection: transport driven by velocity $v$
+- diffusion: spatial smoothing controlled by $D$
+- reaction: nonlinear local dynamics controlled by $\mu$
 
 The goal is to learn a surrogate that generalizes across physical coefficients and initial-condition families.
 
@@ -77,7 +77,7 @@ The goal is to learn a surrogate that generalizes across physical coefficients a
 The project uses a physics-informed DeepONet with a branch-trunk decomposition:
 
 - branch network: ADR parameters plus initial-condition descriptors
-- trunk network: query coordinates \((x,t)\)
+- trunk network: query coordinates $(x,t)$
 - fusion: FiLM-style conditional modulation
 
 Matched architecture in the baseline and the PyTorch vs JAX benchmark:
@@ -89,7 +89,7 @@ Matched architecture in the baseline and the PyTorch vs JAX benchmark:
 - latent dimension: 256
 - activation: SiLU
 - multiscale Fourier features: 20
-- Fourier scales: \(0, 1, 2, 3, 4, 5, 6, 8, 10, 12\)
+- Fourier scales: $\(0, 1, 2, 3, 4, 5, 6, 8, 10, 12\)$
 
 Training objective:
 
@@ -103,7 +103,7 @@ The surrogate is benchmarked against a Crank-Nicolson reference solver for both 
 
 ### Baseline PI-DeepONet
 
-- Global relative \(L^2\): `0.0170 ± 0.00392`
+- Global relative $\(L^2\)$: `0.0170 ± 0.00392`
 - Speedup: `×175.03`
 - Strongest family: `Tanh` with `0.0044 ± 0.00015`
 - Hardest family: `Sin-Gauss` with `0.0320 ± 0.0020`
@@ -139,8 +139,8 @@ JAX trains faster but underperformed on the matched multifamily benchmark used i
 
 Strict multifamily benchmark:
 
-- PyTorch global relative \(L^2\): `0.0170 ± 0.00392`
-- JAX global relative \(L^2\): `1.66884 ± 1.62812`
+- PyTorch global relative $\(L^2\)$: `0.0170 ± 0.00392`
+- JAX global relative $\(L^2\)$: `1.66884 ± 1.62812`
 - PyTorch time-jump speedup: `×21`
 - JAX time-jump speedup: `×45.38`
 - PyTorch training time: `5329.21 s`
@@ -191,27 +191,27 @@ The repository studies a parametric ADR problem rather than one fixed equation i
 
 Physical coefficient ranges:
 
-- \(v \in [0.5, 1.0]\)
-- \(D \in [0.01, 0.2]\)
-- \(\mu \in [0.0, 1.0]\)
+- $\(v \in [0.5, 1.0]\)$
+- $\(D \in [0.01, 0.2]\)$
+- $\(\mu \in [0.0, 1.0]\)$
 
 Initial-condition parameters:
 
-- \(A \in [0.7, 1.0]\)
-- \(\sigma \in [0.4, 0.8]\)
-- \(k \in [1.0, 3.0]\)
-- \(x_0 = 0\)
+- $\(A \in [0.7, 1.0]\)$
+- $\(\sigma \in [0.4, 0.8]\)$
+- $\(k \in [1.0, 3.0]\)$
+- $\(x_0 = 0\)$
 
 Domain and horizons:
 
-- spatial domain: \(x \in [-5, 8]\)
-- baseline horizon: \(T_{\max} = 3.0\)
-- PyTorch vs JAX horizon: \(T_{\max} = 1.0\)
+- spatial domain: $\(x \in [-5, 8]\)$
+- baseline horizon: $\(T_{\max} = 3.0\)$
+- PyTorch vs JAX horizon: $\(T_{\max} = 1.0\)$
 
 Audit grids:
 
-- baseline audits: \(N_x = 500\), \(N_t = 200\)
-- JAX vs PyTorch comparison: \(N_x = 400\), \(N_t = 200\)
+- baseline audits: $\(N_x = 500\)$, $\(N_t = 200\)$
+- JAX vs PyTorch comparison: $\(N_x = 400\)$, $\(N_t = 200\)$
 
 Initial-condition families:
 
@@ -233,9 +233,9 @@ The baseline training protocol uses:
 
 Baseline time curriculum:
 
-- from \(t=0\) to \(t=0.05\): step size `0.01`
-- from \(t=0.05\) to \(t=0.30\): step size `0.05`
-- from \(t=0.30\) to \(t=3.0\): step size `0.10`
+- from $\(t=0\)$ to $\(t=0.05\)$: step size `0.01`
+- from $\(t=0.05\)$ to $\(t=0.30\)$: step size `0.05`
+- from $\(t=0.30\)$ to $\(t=3.0\)$: step size `0.10`
 
 Main baseline hyperparameters:
 
@@ -274,7 +274,7 @@ The comparison keeps the following matched:
 
 Comparison protocol:
 
-- \(T_{\max} = 1.0\)
+- $\(T_{\max} = 1.0\)$
 - batch size: `4096`
 - sampled training points: `4096`
 - warmup iterations: `5000`
@@ -287,8 +287,8 @@ Comparison protocol:
 
 Time curriculum:
 
-- from \(t=0\) to \(t=0.30\): step size `0.05`
-- from \(t=0.30\) to \(t=1.0\): step size `0.10`
+- from $\(t=0\)$ to $\(t=0.30\)$: step size `0.05`
+- from $\(t=0.30\)$ to $\(t=1.0\)$: step size `0.10`
 
 Benchmark reporting:
 
@@ -298,8 +298,8 @@ Benchmark reporting:
 
 Tracked metrics:
 
-- global relative \(L^2\) error
-- family-wise relative \(L^2\) error
+- global relative $\(L^2\)$ error
+- family-wise relative $\(L^2\)$ error
 - full-grid inference time
 - time-jump inference time
 - speedup versus Crank-Nicolson
