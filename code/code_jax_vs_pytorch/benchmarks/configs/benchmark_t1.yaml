@@ -1,0 +1,30 @@
+name: "benchmark_t1"
+seed: 0
+seeds: [0, 1, 2]
+
+training:
+  t_max: 1.0
+  iters: 1000
+  batch_size: 4096
+  log_every: 100
+  learning_rate: 6.078744921577277e-05
+  loss_weights:
+    wr: 500.0
+    wi: 100.0
+    wb: 200.0
+
+evaluation:
+  n_cases_per_family: 20
+  families:
+    Tanh: [0]
+    Sin-Gauss: [1]
+    Gaussian: [3]
+
+inference:
+  batch_size: 50
+  nx: 400
+  nt: 200
+  warmup_iters: 3
+
+outputs:
+  root_dir: "outputs/benchmarks"

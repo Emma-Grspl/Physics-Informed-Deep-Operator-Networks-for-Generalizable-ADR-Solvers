@@ -1,0 +1,65 @@
+name: "benchmark_timemarch_t05"
+seed: 0
+seeds: [0, 1, 2]
+
+training:
+  t_max: 0.5
+  batch_size: 4096
+  learning_rate: 6.078744921577277e-05
+
+loss_weights:
+  first_w_res: 500.0
+  weight_bc: 200.0
+  weight_ic_final: 100.0
+  weight_ic_init: 2000.0
+
+timemarch:
+  warmup:
+    iters: 3000
+    log_every: 500
+  audit_cases_per_family: 6
+  retry:
+    max_retry: 3
+    lr_decay: 0.5
+  phases:
+    - name: "phase_t005"
+      t_max: 0.05
+      iters: 1500
+      log_every: 500
+      threshold: 0.10
+    - name: "phase_t010"
+      t_max: 0.10
+      iters: 1500
+      log_every: 500
+      threshold: 0.12
+    - name: "phase_t020"
+      t_max: 0.20
+      iters: 2000
+      log_every: 500
+      threshold: 0.15
+    - name: "phase_t030"
+      t_max: 0.30
+      iters: 2500
+      log_every: 500
+      threshold: 0.18
+    - name: "phase_t050"
+      t_max: 0.50
+      iters: 4000
+      log_every: 1000
+      threshold: 0.22
+
+evaluation:
+  n_cases_per_family: 20
+  families:
+    Tanh: [0]
+    Sin-Gauss: [1]
+    Gaussian: [3]
+
+inference:
+  batch_size: 10
+  nx: 400
+  nt: 200
+  warmup_iters: 3
+
+outputs:
+  root_dir: "outputs/benchmarks"

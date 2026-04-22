@@ -1,0 +1,30 @@
+name: "benchmark_smoke"
+seed: 0
+seeds: [0]
+
+training:
+  t_max: 1.0
+  iters: 2
+  batch_size: 16
+  log_every: 1
+  learning_rate: 6.078744921577277e-05
+  loss_weights:
+    wr: 500.0
+    wi: 100.0
+    wb: 200.0
+
+evaluation:
+  n_cases_per_family: 2
+  families:
+    Tanh: [0]
+    Sin-Gauss: [1]
+    Gaussian: [3]
+
+inference:
+  batch_size: 4
+  nx: 64
+  nt: 32
+  warmup_iters: 1
+
+outputs:
+  root_dir: "outputs/benchmarks"

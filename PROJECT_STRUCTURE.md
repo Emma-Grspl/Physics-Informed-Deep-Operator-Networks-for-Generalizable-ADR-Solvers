@@ -22,12 +22,12 @@ The `main` branch is the presentation and integration branch of the repository. 
   Canonical PyTorch baseline subtree.
 - `jax_vs_pytorch/`
   Comparison subtree dedicated to framework evaluation and ablations.
-- `figures/`
-  Repository-level curated figures for the baseline and solver comparison.
 - `assets/`
   Short visual selection for quick inspection at repository level.
-- `models/`
-  Root-level reference models exposed at repository level.
+- `code/`
+  Legacy or staging workspace kept at repository level during the reorganization.
+- `model_pi_deeponet/`
+  Root-level reference model artifact exposed at repository level.
 
 ## `base/`
 
@@ -74,21 +74,8 @@ This subtree is the comparison block packaged inside `main`.
   Comparison SLURM launchers.
 - `jax_vs_pytorch/figures/`
   Full comparison figures.
-- `jax_vs_pytorch/assets/`
-  Curated comparison visuals and summary files.
 - `jax_vs_pytorch/models/`
-  Serialized JAX outputs and benchmark model artifacts grouped by backend and protocol.
-
-## `figures/`
-
-This root-level directory contains repository-wide visuals that are useful even without opening a branch-specific subtree.
-
-- `figures/crank_nicolson/`
-  Classical solver figures.
-- `figures/pi_deeponet/`
-  Standalone PI-DeepONet figures.
-- `figures/pi_deeponet_vs_cn/`
-  PI-DeepONet versus Crank-Nicolson comparison figures.
+  Serialized benchmark model artifacts grouped by protocol.
 
 ## `assets/`
 
@@ -99,9 +86,13 @@ This root-level directory contains the most representative visuals surfaced at r
 - `assets/jax_vs_pytorch/`
   Curated visuals from the comparison side.
 
-## `models/`
+## `code/`
 
-This directory contains the small number of root-level model artifacts intentionally exposed at repository level.
+This root-level directory is currently a reorganization workspace that mirrors or stages code extracted from the scientific subtrees.
+
+## `model_pi_deeponet/`
+
+This root-level directory contains the small number of reference model artifacts intentionally exposed at repository level.
 
 The detailed benchmark outputs remain inside the relevant scientific subtree rather than at root.
 
