@@ -90,7 +90,8 @@ python jax_vs_pytorch/code/benchmarks/jax/train_fulltrainer_benchmark.py \
 
 - [docs/science.md](docs/science.md): equation, architecture, loss, curriculum, and generalization setup
 - [docs/benchmark.md](docs/benchmark.md): strict PyTorch vs JAX benchmark design and interpretation
+- [docs/experimental_protocol.md](docs/experimental_protocol.md): For full reproducibility 
 - [docs/results.md](docs/results.md): headline tables, ablations, and seed coverage
 - [base/README.md](base/README.md): baseline subtree overview
 - [jax_vs_pytorch/README.md](jax_vs_pytorch/README.md): framework-comparison subtree overview
-- For full reproducibility, see docs/experimental_protocol.md
+
